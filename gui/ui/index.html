@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>puppetty</title>
+  <link rel="stylesheet" href="vendor/xterm.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header id="topbar" data-tauri-drag-region>
+    <div id="tabs"></div>
+    <div id="topbar-right">
+      <div id="actions">
+        <button id="btn-companion" data-i18n="btn.shell" data-i18n-title="btn.shell.title">＋ Shell</button>
+        <button id="btn-auto" data-i18n="btn.auto" data-i18n-title="btn.auto.title">⚡ Auto</button>
+        <button id="btn-feed" data-i18n="btn.feed" data-i18n-title="btn.feed.title">▤ Feed</button>
+        <button id="btn-settings" data-i18n="btn.settings" data-i18n-title="btn.settings.title">⚙ Settings</button>
+      </div>
+      <div id="window-controls">
+        <button id="win-min" data-i18n-title="win.minimize" title="Minimize" aria-label="Minimize">&#8211;</button>
+        <button id="win-max" data-i18n-title="win.maximize" title="Maximize" aria-label="Maximize">&#9633;</button>
+        <button id="win-close" data-i18n-title="win.close" title="Close" aria-label="Close">&#10005;</button>
+      </div>
+    </div>
+  </header>
+
+  <div id="prompt-banner" class="hidden" data-i18n="banner.waiting">
+    ⚠ this session is waiting for input — click the terminal and type, or check the feed
+  </div>
+
+  <main id="layout">
+    <section id="terms"></section>
+    <aside id="feed">
+      <h2 data-i18n="feed.title">Decision feed</h2>
+      <div id="feed-items"></div>
+    </aside>
+  </main>
+
+  <dialog id="settings-dialog">
+    <form method="dialog">
+      <div class="settings-head">
+        <h3 data-i18n="settings.title">Settings</h3>
+        <button value="close" class="ghost" data-i18n="common.close">Close</button>
+      </div>
+      <nav class="settings-tabs">
+        <button type="button" class="stab active" data-pane="pane-rules" data-i18n="settings.tab.rules">Effective rules</button>
+        <button type="button" class="stab" data-pane="pane-config" data-i18n="settings.tab.config">Edit config</button>
+        <button type="button" class="stab" data-pane="pane-creds" data-i18n="settings.tab.creds">Credentials</button>
+        <button type="button" class="stab" data-pane="pane-appearance" data-i18n="settings.tab.appearance">Appearance</button>
+      </nav>
+
+      <section id="pane-rules" class="spane">
+        <div class="rules-editor-head">
+          <p class="hint" data-i18n="settings.rules.hint">The policy in effect (built-in defaults + your rules). Add your own, or override/disable a built-in.</p>
+          <button type="button" id="rule-add-btn" data-i18n="config.addRule">＋ Add rule</button>
+        </div>
+        <table id="rules-table"><tbody></tbody></table>
+      </section>
+
+      <section id="pane-config" class="spane hidden">
+        <p class="hint"><span data-i18n="settings.config.hintPre">Your user config (</span><code id="cfg-path"></code><span data-i18n="settings.config.hintPost">). JSONC — comments allowed.</span></p>
+        <textarea id="config-text" spellcheck="false" rows="16"></textarea>
+        <div class="config-actions">
+          <span id="config-status"></span>
+          <button type="button" id="config-save" data-i18n="settings.config.save">Validate &amp; Save</button>
+        </div>
+      </section>
+
+      <section id="pane-creds" class="spane hidden">
+        <p class="hint"><span data-i18n="settings.creds.hint">Secrets are stored in the OS keyring, never in a file or log. Reference one from a rule with</span>
+          <code>{ "action": "credential", "ref": "name" }</code>.</p>
+        <ul id="cred-list"></ul>
+        <div class="cred-add">
+          <input id="cred-ref" data-i18n-placeholder="settings.creds.refPlaceholder" placeholder="ref name (e.g. github-token)" autocomplete="off" />
+          <input id="cred-secret" type="password" data-i18n-placeholder="settings.creds.secretPlaceholder" placeholder="secret value" autocomplete="off" />
+          <button type="button" id="cred-add-btn" data-i18n="common.add">Add</button>
+        </div>
+      </section>
+
+      <section id="pane-appearance" class="spane hidden">
+        <div class="pref-row">
+          <label data-i18n="appearance.language">Language</label>
+          <select id="pref-lang">
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+          </select>
+        </div>
+        <div class="pref-row">
+          <label data-i18n="appearance.tabPos">Tab position</label>
+          <select id="pref-tabpos">
+            <option value="top" data-i18n="appearance.tabPos.top">Top (horizontal)</option>
+            <option value="left" data-i18n="appearance.tabPos.left">Left (vertical)</option>
+          </select>
+        </div>
+        <div class="pref-row">
+          <label data-i18n="appearance.onLastTab">When the last tab closes</label>
+          <select id="pref-lasttab">
+            <option value="quit" data-i18n="appearance.onLastTab.quit">Close the app</option>
+            <option value="newShell" data-i18n="appearance.onLastTab.shell">Open a new shell</option>
+          </select>
+        </div>
+        <div class="pref-row">
+          <label data-i18n="appearance.aiCommand">AI helper command</label>
+          <input type="text" id="pref-aicommand" spellcheck="false" placeholder="claude -p" data-i18n-placeholder="appearance.aiCommand.ph" />
+        </div>
+        <p class="hint pref-sub" data-i18n="appearance.aiCommand.hint">Used by the rule editor's “Suggest regex”. The prompt is piped to this command's stdin.</p>
+        <div class="pref-row">
+          <label data-i18n="appearance.autoAnswer">Auto-answer new sessions by default</label>
+          <input type="checkbox" id="pref-autoanswer" />
+        </div>
+        <div class="pref-row">
+          <label data-i18n="appearance.showFeed">Show decision feed</label>
+          <input type="checkbox" id="pref-feed" />
+        </div>
+        <div class="pref-row">
+          <label data-i18n="appearance.theme">Theme</label>
+          <select id="pref-theme">
+            <option value="midnight" data-i18n="appearance.theme.midnight">Midnight</option>
+            <option value="slate" data-i18n="appearance.theme.slate">Slate</option>
+            <option value="light" data-i18n="appearance.theme.light">Light</option>
+          </select>
+        </div>
+        <div class="pref-row">
+          <label data-i18n="appearance.fontFamily">Font family</label>
+          <div class="font-control">
+            <button type="button" id="pref-font-all" class="linkish" data-i18n="appearance.allFonts" data-i18n-title="appearance.allFonts.title" hidden>All installed…</button>
+            <select id="pref-font"></select>
+          </div>
+        </div>
+        <div class="pref-row">
+          <label data-i18n="appearance.fontSize">Font size</label>
+          <input type="number" id="pref-fontsize" min="8" max="32" step="1" />
+        </div>
+        <div class="pref-row">
+          <label data-i18n="appearance.opacity">Window opacity</label>
+          <div class="slider-control">
+            <input type="range" id="pref-opacity" min="50" max="100" step="1" />
+            <span id="pref-opacity-val" class="slider-val"></span>
+          </div>
+        </div>
+      </section>
+    </form>
+  </dialog>
+
+  <dialog id="ask-dialog">
+    <form method="dialog">
+      <h3 id="ask-title">This program is asking for input</h3>
+      <p id="ask-line" class="ask-line"></p>
+      <p id="ask-note" class="ask-note"></p>
+      <label id="ask-input-label"><span data-i18n="ask.response">Your response</span>
+        <input id="ask-input" type="password" autocomplete="off" />
+      </label>
+      <label id="ask-reveal-label" class="inline">
+        <input id="ask-reveal" type="checkbox" /> <span data-i18n="ask.reveal">show characters</span>
+      </label>
+      <div id="ask-keys" class="ask-keys">
+        <span class="ask-keys-label" data-i18n="ask.insertKey">Insert key:</span>
+        <button type="button" class="key-chip" data-key="{esc}">Esc</button>
+        <button type="button" class="key-chip" data-key="{tab}">Tab</button>
+        <button type="button" class="key-chip" data-key="{up}">↑</button>
+        <button type="button" class="key-chip" data-key="{down}">↓</button>
+      </div>
+      <label id="ask-append-label" class="inline">
+        <input id="ask-append-enter" type="checkbox" checked /> <span data-i18n="ask.appendEnter">Send Enter after</span>
+      </label>
+      <menu>
+        <button value="cancel" id="ask-cancel" data-i18n="ask.cancel">Cancel (Ctrl+C)</button>
+        <button value="send" id="ask-send" data-i18n="ask.send">Send</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="rule-dialog">
+    <form method="dialog">
+      <h3 id="rule-dialog-title" data-i18n="rule.addTitle">Add rule</h3>
+      <label><span data-i18n="rule.name">Name</span>
+        <input id="rule-f-name" type="text" autocomplete="off" />
+      </label>
+      <label><span data-i18n="rule.matchBy">Match by</span>
+        <select id="rule-f-matchmode">
+          <option value="regex" data-i18n="rule.matchBy.regex">Regex</option>
+          <option value="describe" data-i18n="rule.matchBy.describe">Describe it (AI writes the regex)</option>
+        </select>
+      </label>
+      <div id="rule-f-describe-row">
+        <label><span data-i18n="rule.describe">Describe the prompt</span>
+          <input id="rule-f-describe" type="text" autocomplete="off" placeholder="e.g. an OS user password prompt" data-i18n-placeholder="rule.describe.ph" />
+        </label>
+        <div class="describe-actions">
+          <button type="button" id="rule-f-suggest" data-i18n="rule.suggest">✨ Suggest regex</button>
+          <span id="rule-f-suggest-status" class="field-hint"></span>
+        </div>
+      </div>
+      <label><span data-i18n="rule.match">Match (regex)</span>
+        <input id="rule-f-match" type="text" autocomplete="off" spellcheck="false" />
+      </label>
+      <p id="rule-f-match-hint" class="field-hint" data-i18n="rule.matchHint">This regex is what actually matches — the description above only feeds Suggest.</p>
+      <label><span data-i18n="rule.scope">Match against</span>
+        <select id="rule-f-scope">
+          <option value="line" data-i18n="rule.scope.line">The prompt line (default)</option>
+          <option value="screen" data-i18n="rule.scope.screen">Anywhere in the prompt (multi-line)</option>
+        </select>
+      </label>
+      <label><span data-i18n="rule.action">Answer</span>
+        <select id="rule-f-action">
+          <option value="send" data-i18n="rule.action.send">Type this text</option>
+          <option value="enter" data-i18n="rule.action.enter">Just press Enter</option>
+          <option value="credential" data-i18n="rule.action.credential">Use a secret (from keyring)</option>
+          <option value="forbid" data-i18n="rule.action.forbid">Never auto-answer</option>
+          <option value="decider" data-i18n="rule.action.decider">Ask AI each time</option>
+        </select>
+      </label>
+      <label id="rule-f-text-row"><span data-i18n="rule.text">Answer text</span>
+        <input id="rule-f-text" type="text" autocomplete="off" />
+      </label>
+      <p id="rule-f-keyshint" class="field-hint" data-i18n="rule.keysHint">Tip: embed keys like {enter} {esc} {tab} {up} {down} in the text.</p>
+      <label id="rule-f-enter-row" class="inline">
+        <input type="checkbox" id="rule-f-enter" checked /> <span data-i18n="rule.appendEnter">Append Enter after the text</span>
+      </label>
+      <label id="rule-f-ref-row"><span data-i18n="rule.ref">Credential ref</span>
+        <select id="rule-f-ref"></select>
+      </label>
+      <label><span data-i18n="rule.class">Severity</span>
+        <select id="rule-f-class">
+          <option value="" data-i18n="rule.class.default">(automatic)</option>
+          <option value="auto">auto</option>
+          <option value="confirm">confirm</option>
+          <option value="forbid">forbid</option>
+        </select>
+      </label>
+      <p id="rule-dialog-err"></p>
+      <menu>
+        <button value="cancel" data-i18n="common.cancel">Cancel</button>
+        <button value="save" id="rule-dialog-save" data-i18n="common.save">Save</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <!-- Frameless-window resize grips (decorations are disabled) -->
+  <div class="resize-grip rg-n"  data-dir="North"></div>
+  <div class="resize-grip rg-s"  data-dir="South"></div>
+  <div class="resize-grip rg-e"  data-dir="East"></div>
+  <div class="resize-grip rg-w"  data-dir="West"></div>
+  <div class="resize-grip rg-ne" data-dir="NorthEast"></div>
+  <div class="resize-grip rg-nw" data-dir="NorthWest"></div>
+  <div class="resize-grip rg-se" data-dir="SouthEast"></div>
+  <div class="resize-grip rg-sw" data-dir="SouthWest"></div>
+
+  <script src="vendor/xterm.js"></script>
+  <script src="vendor/addon-fit.js"></script>
+  <script src="js/main.js" type="module"></script>
+</body>
+</html>
