@@ -2,6 +2,8 @@
 
 Controllable virtual terminal sessions for AI agents.
 
+![puppetty auto-answering interactive prompts](https://raw.githubusercontent.com/puppetty-org/puppetty/main/docs/demo.gif)
+
 `puppetty claude` runs `claude` (or any command) inside a pseudo-terminal
 (ConPTY) session that **any other process can drive programmatically**: type
 input into it, press keys, and read the rendered screen — like tmux's
