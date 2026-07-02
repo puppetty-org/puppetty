@@ -1,6 +1,6 @@
 {
   "name": "puppetty",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Run commands under a pseudo-terminal that auto-answers interactive prompts (or delegates the decision to an AI agent), so scripts never hang waiting for input.",
   "type": "module",
   "bin": {
