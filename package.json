@@ -26,6 +26,14 @@
     "ai-agent",
     "terminal"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/puppetty-org/puppetty.git"
+  },
+  "homepage": "https://github.com/puppetty-org/puppetty#readme",
+  "bugs": {
+    "url": "https://github.com/puppetty-org/puppetty/issues"
+  },
   "license": "MIT",
   "dependencies": {
     "@lydell/node-pty": "^1.2.0-beta.12",
