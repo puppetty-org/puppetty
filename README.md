@@ -4,6 +4,45 @@ Controllable virtual terminal sessions for AI agents.
 
 ![puppetty auto-answering interactive prompts](https://raw.githubusercontent.com/puppetty-org/puppetty/main/docs/demo.gif)
 
+## Installation
+
+```powershell
+npm install -g puppetty
+```
+
+Requires **Node.js 22+** (current LTS; needed for stable `require(esm)`).
+That's all the setup the CLI needs — `puppetty` is now on your PATH. Optional
+pieces you can add later:
+
+- **Policy** — auto-answer rules in `~/.puppetty/config.json` (user) or
+  `<cwd>/.puppetty/config.json` (project); see
+  [Autopilot & policy](#autopilot--policy-optional).
+- **Credentials** — store secrets in the OS keyring with
+  `puppetty cred set <name>`; see [Credentials](#credentials).
+- **MCP server** — register `puppetty mcp` in your agent's config; see
+  [MCP server](#mcp-server-for-ai-agents).
+
+### GUI (from source)
+
+The desktop GUI — terminal tabs attached to live sessions, a decision feed,
+and an ask-human dialog for secret/danger prompts — is a Tauri 2 app in
+[`gui/`](gui/). It is **not included in the npm package** (there is no
+`puppetty gui` command and no prebuilt installers yet), so run it from a
+clone of this repo:
+
+```powershell
+git clone https://github.com/puppetty-org/puppetty
+cd puppetty
+npm install          # engine dependencies (the GUI drives ../bin/puppetty.js)
+cd gui
+npm install
+npm run vendor       # copy xterm.js into ui/vendor
+npm run dev          # launch the desktop app
+```
+
+This needs the [Rust / Tauri 2 toolchain](https://v2.tauri.app/start/prerequisites/)
+in addition to Node. See [`gui/README.md`](gui/README.md) for details.
+
 `puppetty claude` runs `claude` (or any command) inside a pseudo-terminal
 (ConPTY) session that **any other process can drive programmatically**: type
 input into it, press keys, and read the rendered screen — like tmux's
@@ -21,8 +60,6 @@ input into it, press keys, and read the rendered screen — like tmux's
 The child process believes it is attached to a real interactive terminal, so
 TUIs (Claude Code, inquirer menus), `[y/N]` confirmations, and password
 prompts all behave exactly as they would for a human.
-
-Requires **Node.js 22+** (current LTS; needed for stable `require(esm)`).
 
 ## Usage
 
