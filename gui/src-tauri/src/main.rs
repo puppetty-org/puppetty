@@ -40,6 +40,23 @@ fn read_gui_config() -> Value {
         .unwrap_or_else(|| json!({}))
 }
 
+// True when no window state had been saved when this process started — the
+// only launch that should be auto-sized to the 120x28 default grid. Captured
+// at startup because the window-state plugin writes the file on close.
+static FIRST_RUN: OnceLock<bool> = OnceLock::new();
+
+fn window_state_path() -> PathBuf {
+    let appdata = std::env::var("APPDATA").unwrap_or_default();
+    PathBuf::from(appdata)
+        .join("dev.hinase.puppetty")
+        .join(".window-state.json")
+}
+
+#[tauri::command]
+fn is_first_run() -> bool {
+    *FIRST_RUN.get_or_init(|| !window_state_path().exists())
+}
+
 #[tauri::command]
 fn get_remote_debug() -> bool {
     read_gui_config()["remoteDebugPort"].as_u64().is_some()
@@ -490,6 +507,7 @@ fn notify(app: AppHandle, title: String, body: String) -> Result<(), String> {
 }
 
 fn main() {
+    let _ = is_first_run(); // capture before the plugin can write the file
     // Opt-in remote debugging (CDP): WebView2 reads this env var at webview
     // creation, so it must be set before the builder runs. Toggled in
     // Settings; off by default — CDP means full control of this window.
@@ -527,6 +545,7 @@ fn main() {
             notify,
             get_remote_debug,
             set_remote_debug,
+            is_first_run,
         ])
         .run(tauri::generate_context!())
         .expect("error while running puppetty-gui");
