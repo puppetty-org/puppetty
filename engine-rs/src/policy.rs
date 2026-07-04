@@ -370,6 +370,61 @@ mod tests {
         assert_eq!(v["a"], json!([1, 2, 3]));
     }
 
+    /// The compatibility contract for JS-flavored user patterns, documented
+    /// in README.md §"JS regex compatibility". Every construct listed as
+    /// supported there must compile through compile_pattern and match (or
+    /// not match) exactly as it would in a JS RegExp.
+    #[test]
+    fn js_regex_compatibility_spec() {
+        let supported: &[(&str, &str, &str, bool)] = &[
+            // (pattern, flags, input, expect_match)
+            ("[y/n]\\)?\\s*$", "i", "Continue? (Y/N)", true), // char class + anchors
+            ("\\bforce\\b", "", "use force now", true),       // word boundary
+            ("\\bforce\\b", "", "forced", false),
+            ("\\d+\\s*%", "", "15 %", true), // digit/space classes
+            ("PASSWORD", "i", "password:", true), // i flag
+            ("^bar$", "m", "foo\nbar", true), // m flag
+            ("a.b", "s", "a\nb", true),      // s flag (dotAll)
+            ("a.b", "", "a\nb", false),
+            ("foo(?=bar)", "", "foobar", true), // lookahead
+            ("foo(?=bar)", "", "foobaz", false),
+            ("foo(?!bar)", "", "foobaz", true), // negative lookahead
+            ("(?<=\\$)\\d+", "", "$42", true),  // lookbehind
+            ("(?<!\\\\)\"", "", "say \"hi", true), // negative lookbehind
+            ("(['\"]).*?\\1", "", "'quoted'", true), // backreference
+            ("(?<key>\\w+)=", "", "name=", true), // named group
+            ("\\u00e9", "", "caf\u{e9}", true), // \uXXXX escape
+            ("[:：]\\s*$", "", "パスワード：", true), // unicode literal in class
+            ("\\p{L}+", "", "日本語", true),    // unicode property (JS /u)
+            ("colou?r", "", "color", true),     // optional
+            ("(yes|no|y/n)", "", "reply y/n please", true), // alternation
+        ];
+        for (pattern, flags, input, expect) in supported {
+            let re = compile_pattern(pattern, flags)
+                .unwrap_or_else(|e| panic!("pattern {pattern:?} must compile: {e}"));
+            assert_eq!(
+                re.is_match(input).unwrap(),
+                *expect,
+                "pattern {pattern:?} flags {flags:?} vs input {input:?}"
+            );
+        }
+
+        // Documented as UNSUPPORTED: these JS constructs are rejected at
+        // compile time (config validate reports them) rather than silently
+        // misbehaving. If a fancy-regex upgrade starts accepting one, move
+        // it to the supported table and update the README.
+        let unsupported: &[&str] = &[
+            "\\cJ", // control-character escape
+            "[]",   // empty class (JS: never matches; Rust: parse error)
+        ];
+        for pattern in unsupported {
+            assert!(
+                compile_pattern(pattern, "").is_err(),
+                "pattern {pattern:?} is documented as unsupported and must fail to compile"
+            );
+        }
+    }
+
     #[test]
     fn default_rules_classify() {
         let p = policy();

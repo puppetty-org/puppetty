@@ -655,16 +655,25 @@ fn merge(into: &mut Value, from: Value) {
 mod tests {
     use super::*;
 
-    /// End-to-end through the real PTY: spawn, render, detect exit. Guards
-    /// the ConPTY cursor-query handshake — without the DSR reply the child
-    /// never starts and this test hangs at the timeout.
+    /// End-to-end through the real PTY: spawn, render, detect exit. On
+    /// Windows this guards the ConPTY cursor-query handshake — without the
+    /// DSR reply the child never starts and this test hangs at the timeout.
     #[tokio::test(flavor = "multi_thread")]
-    #[cfg(windows)]
     async fn echo_renders_and_exits() {
+        #[cfg(windows)]
+        let (command, args) = (
+            "cmd",
+            vec!["/c".into(), "echo rust-engine-test-marker".into()],
+        );
+        #[cfg(unix)]
+        let (command, args) = (
+            "sh",
+            vec!["-c".into(), "echo rust-engine-test-marker".into()],
+        );
         let session = Session::spawn(SpawnOptions {
             name: format!("rs-selftest-{}", std::process::id()),
-            command: "cmd".into(),
-            args: vec!["/c".into(), "echo rust-engine-test-marker".into()],
+            command: command.into(),
+            args,
             cols: 80,
             rows: 24,
             cwd: ".".into(),

@@ -109,3 +109,73 @@ where
     drop(out_tx);
     let _ = writer.await;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::client;
+    use crate::session::SpawnOptions;
+    use std::time::Duration;
+
+    /// Round-trip through the real control endpoint — named pipe on Windows,
+    /// Unix domain socket elsewhere: info, send, wait-for-pattern, kill.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn control_endpoint_round_trip() {
+        let name = format!("rs-socktest-{}", std::process::id());
+        #[cfg(windows)]
+        let (command, args) = ("cmd", Vec::<String>::new());
+        #[cfg(unix)]
+        let (command, args) = ("sh", Vec::<String>::new());
+        let session = Session::spawn(SpawnOptions {
+            name: name.clone(),
+            command: command.into(),
+            args,
+            cols: 80,
+            rows: 24,
+            cwd: ".".into(),
+            exit_grace: Duration::from_millis(100),
+            logger: None,
+            policy: None,
+        })
+        .unwrap();
+        let srv = session.clone();
+        tokio::spawn(async move {
+            let _ = serve(srv).await;
+        });
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        let info = client::request(&name, &json!({ "op": "info" }), 5_000)
+            .await
+            .expect("info over the control endpoint");
+        assert_eq!(info["ok"].as_bool(), Some(true));
+        assert_eq!(info["name"].as_str(), Some(name.as_str()));
+
+        client::request(
+            &name,
+            &json!({ "op": "send", "data": "echo sock-roundtrip-99", "enter": true }),
+            5_000,
+        )
+        .await
+        .expect("send");
+        let res = client::request(
+            &name,
+            &json!({ "op": "wait", "pattern": "sock-roundtrip-99", "timeoutMs": 10_000 }),
+            15_000,
+        )
+        .await
+        .expect("wait");
+        assert_eq!(res["reason"].as_str(), Some("pattern"), "res: {res}");
+
+        client::request(&name, &json!({ "op": "kill" }), 5_000)
+            .await
+            .expect("kill");
+        let mut shutdown = session.shutdown.subscribe();
+        tokio::time::timeout(Duration::from_secs(15), async {
+            while !*shutdown.borrow() {
+                shutdown.changed().await.unwrap();
+            }
+        })
+        .await
+        .expect("session shut down after kill");
+    }
+}

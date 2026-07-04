@@ -346,6 +346,11 @@ async fn cmd_run(mut opts: RunOpts) -> i32 {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0000_0008 | 0x0800_0000); // DETACHED_PROCESS | CREATE_NO_WINDOW
     }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0); // survive the parent's terminal/signals
+    }
     if let Err(e) = cmd.spawn() {
         return fail(&e.to_string());
     }

@@ -39,11 +39,31 @@ session, and the repo's demo scripts running under the Rust autopilot):
 - ConPTY cursor-query handshake: the engine answers `ESC[6n` cursor reports
   (ConPTY blocks the child until the first reply; TUIs also query at will)
 
-Known gaps vs the Node engine:
+## JS regex compatibility
 
-- User-config regexes run on fancy-regex: JS syntax largely works
-  (lookaround, backrefs), but exotic JS-only constructs may differ
-- Unix (code paths exist, only Windows is tested — same as the Node engine)
+User-config rule patterns are written in JS RegExp syntax (configs are shared
+with the Node engine). The Rust engine compiles them with fancy-regex; the
+contract below is enforced by the `js_regex_compatibility_spec` test — every
+supported construct is verified to behave exactly as a JS RegExp would.
+
+Supported: `i`/`m`/`s` flags; classes and anchors (`\d \w \s \b ^ $`);
+alternation, optional/quantifiers; lookahead `(?=…)`/`(?!…)` and lookbehind
+`(?<=…)`/`(?<!…)`; backreferences `\1`; named groups `(?<name>…)`; `\uXXXX`
+escapes; unicode literals in classes (e.g. `[:：]`); unicode properties
+`\p{L}` (JS `/u` semantics).
+
+Unsupported (rejected at compile time by `config validate`, never silently
+different): control escapes `\cX`, empty character class `[]`, legacy octal
+escapes.
+
+## Platform status
+
+- Windows is the primary target (ConPTY); full test suite + demos verified.
+- Unix: same code paths built and tested on Linux (WSL2 Ubuntu) — PTY spawn,
+  Unix-socket control endpoint, `sh -c` decider. Linux keyring uses the
+  kernel keyutils (`linux-native` feature): secrets are per-session, not
+  persisted across reboots; switch to a secret-service feature if you need
+  persistence. macOS builds (apple-native keyring) but is untested.
 
 ## Build & test
 

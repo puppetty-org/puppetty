@@ -14,7 +14,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"
 fancy-regex = "0.16"
-keyring = { version = "3", features = ["windows-native", "apple-native"] }
+keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native"] }
 clap = { version = "4", features = ["derive"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 dirs = "6"
