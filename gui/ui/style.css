@@ -47,13 +47,13 @@ body {
 #topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   background: var(--bg-alt-a);
   padding: 0 8px;
   height: 40px;
   flex: none;
 }
-#topbar-right { display: flex; align-items: center; gap: 8px; }
+/* margin-left:auto (not space-between) so the ＋ button hugs the last tab */
+#topbar-right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 
 /* Sit the horizontal tab strip flush to the bottom of the bar so there's no
    gap between the tabs and the content pane below. */
@@ -235,9 +235,20 @@ tr.rule-off .rule-name, tr.rule-off .rule-match, tr.rule-off .rule-badge, tr.rul
 .key-chip:hover { border-color: var(--accent); color: var(--accent); }
 label.inline { display: flex; align-items: center; gap: 7px; font-size: 12px; }
 .tab-auto { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 0 4px; margin-right: 6px; opacity: 0.85; cursor: pointer; }
-.tab-auto:hover { opacity: 1; }
+.tab-auto:hover { opacity: 1; background: var(--accent); color: var(--bg); }
 .tab-auto.off { color: var(--dim); border-color: var(--border); opacity: 0.45; }
-#btn-auto.on { color: var(--accent); border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.tab-auto.off:hover { opacity: 0.9; background: var(--bg); color: var(--fg); border-color: var(--dim); }
+
+/* Windows-Terminal-style new-tab button, sitting after the last tab */
+.tab-add {
+  background: none; border: none; color: var(--dim);
+  font-size: 16px; line-height: 1; cursor: pointer;
+  width: 28px; height: 26px; border-radius: 6px;
+  display: grid; place-items: center; margin-left: 2px;
+  align-self: flex-end; flex: 0 0 auto;
+}
+.tab-add:hover { background: var(--bg); color: var(--fg); }
+body.tabs-left .tab-add { align-self: auto; }
 #rule-dialog { min-width: 420px; }
 #rule-dialog select { display: block; width: 100%; margin-top: 4px; padding: 7px 9px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
 #rule-dialog-err { color: #f7768e; font-size: 12px; min-height: 15px; margin-bottom: 8px; }
@@ -300,9 +311,10 @@ body.feed-hidden #feed { display: none; }
 #window-controls { display: flex; gap: 2px; }
 #window-controls button {
   background: none; border: none; color: var(--dim);
-  width: 36px; height: 30px; cursor: pointer; font-size: 12px;
+  width: 40px; height: 32px; cursor: pointer; font-size: 15px;
   border-radius: 5px; line-height: 1; display: grid; place-items: center;
 }
+#win-max { font-size: 17px; } /* □ renders smaller than – and ✕ at equal size */
 #window-controls button:hover { background: var(--bg); color: var(--fg); }
 #win-close:hover { background: #e81123; color: #fff; }
 
