@@ -457,6 +457,7 @@ fn notify(app: AppHandle, title: String, body: String) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(Writers(Arc::new(Mutex::new(HashMap::new()))))
         .invoke_handler(tauri::generate_handler![
             list_sessions,

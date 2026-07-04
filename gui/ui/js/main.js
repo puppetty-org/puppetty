@@ -325,6 +325,29 @@ async function openSession(name, command, auto) {
   } catch (err) {
     s.term.write(`\r\n\x1b[31mattach failed: ${err}\x1b[0m\r\n`);
   }
+  sizeToGrid(s);
+}
+
+// First launch only: size the window so the terminal shows 120x28 cells.
+// Afterwards the window-state plugin remembers whatever the user resizes to.
+async function sizeToGrid(s) {
+  if (localStorage.getItem('puppetty-sized')) return;
+  try {
+    await new Promise((r) => requestAnimationFrame(r)); // ensure a real layout
+    const r = s.holder.querySelector('.xterm-screen').getBoundingClientRect();
+    if (!r.width || !r.height) return; // not rendered yet — retry on next open
+    const cellW = r.width / s.term.cols;
+    const cellH = r.height / s.term.rows;
+    // Everything around the grid (top bar, paddings, feed if shown) stays
+    // constant, so grow/shrink the window by the grid-size delta.
+    const w = Math.round(window.innerWidth + (120 - s.term.cols) * cellW);
+    const h = Math.round(window.innerHeight + (28 - s.term.rows) * cellH);
+    const win = window.__TAURI__.window.getCurrentWindow();
+    await win.setSize(new window.__TAURI__.dpi.LogicalSize(w, h));
+    localStorage.setItem('puppetty-sized', '1'); // only burn the flag on success
+  } catch (err) {
+    console.error('sizeToGrid failed:', err);
+  }
 }
 
 async function closeSession(name) {
