@@ -33,13 +33,14 @@ session, and the repo's demo scripts running under the Rust autopilot):
 - Session logs: asciinema v2 `.cast` + structured `.jsonl` with source
   attribution and retention pruning
 - MCP server over stdio (all 7 tools, hand-rolled JSON-RPC)
+- Colored attach replay: a built-in serializer (the xterm serialize-addon
+  counterpart) repaints the buffer with SGR colors/attributes and up to
+  1000 lines of styled history; guarded by cell-exact round-trip tests
 - ConPTY cursor-query handshake: the engine answers `ESC[6n` cursor reports
   (ConPTY blocks the child until the first reply; TUIs also query at will)
 
 Known gaps vs the Node engine:
 
-- Attach replay repaints text only (no colors/attributes yet — the Node
-  engine uses xterm.js's serialize addon)
 - User-config regexes run on fancy-regex: JS syntax largely works
   (lookaround, backrefs), but exotic JS-only constructs may differ
 - Unix (code paths exist, only Windows is tested — same as the Node engine)
