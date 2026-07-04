@@ -8,12 +8,22 @@ use crate::protocol::{meta_path, pipe_path, sessions_dir};
 /// One-shot request against a session's control endpoint.
 pub async fn request(name: &str, req: &Value, timeout_ms: u64) -> Result<Value, String> {
     let fut = async {
+        // Named-pipe connects race the server re-creating its next instance:
+        // retry NOT_FOUND/PIPE_BUSY briefly before giving up.
         #[cfg(windows)]
         let stream = {
             use tokio::net::windows::named_pipe::ClientOptions;
-            ClientOptions::new()
-                .open(pipe_path(name))
-                .map_err(|e| format!("cannot reach session \"{name}\": {e}"))?
+            let mut attempt = 0;
+            loop {
+                match ClientOptions::new().open(pipe_path(name)) {
+                    Ok(c) => break c,
+                    Err(e) if matches!(e.raw_os_error(), Some(2) | Some(231)) && attempt < 30 => {
+                        attempt += 1;
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                    }
+                    Err(e) => return Err(format!("cannot reach session \"{name}\": {e}")),
+                }
+            }
         };
         #[cfg(not(windows))]
         let stream = tokio::net::UnixStream::connect(pipe_path(name))

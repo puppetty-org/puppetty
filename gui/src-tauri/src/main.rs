@@ -101,11 +101,24 @@ async fn run_cli(args: &[&str], stdin_data: Option<String>) -> Result<String, St
     }
 }
 
+// Named-pipe connects race the server re-creating its next instance (and a
+// fresh session may not be listening yet): retry NOT_FOUND/PIPE_BUSY briefly.
+async fn open_pipe(name: &str) -> Result<NamedPipeClient, String> {
+    for _ in 0..30 {
+        match ClientOptions::new().open(pipe_path(name)) {
+            Ok(c) => return Ok(c),
+            Err(e) if matches!(e.raw_os_error(), Some(2) | Some(231)) => {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            Err(e) => return Err(format!("cannot reach session \"{name}\": {e}")),
+        }
+    }
+    Err(format!("cannot reach session \"{name}\": not responding"))
+}
+
 async fn one_shot(name: &str, req: Value, timeout_ms: u64) -> Result<Value, String> {
     let fut = async {
-        let client = ClientOptions::new()
-            .open(pipe_path(name))
-            .map_err(|e| format!("cannot reach session \"{name}\": {e}"))?;
+        let client = open_pipe(name).await?;
         let (read, mut write) = tokio::io::split(client);
         write
             .write_all(format!("{req}\n").as_bytes())
@@ -194,9 +207,7 @@ async fn attach_session(
             return Ok(()); // already attached
         }
     }
-    let client = ClientOptions::new()
-        .open(pipe_path(&name))
-        .map_err(|e| format!("cannot reach session \"{name}\": {e}"))?;
+    let client = open_pipe(&name).await?;
     let (read, mut write) = tokio::io::split(client);
     write
         .write_all(
