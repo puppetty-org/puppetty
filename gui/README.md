@@ -40,6 +40,21 @@ while they're shown here.
   log records only a byte count). Cancel sends Ctrl+C. Escape is disabled so
   the choice is always explicit.
 
+## Install
+
+Download the Windows installer from the
+[GitHub Releases page](https://github.com/puppetty-org/puppetty/releases).
+The GUI is a client of the puppetty engine, which is installed separately
+(requires Node.js 22+):
+
+```powershell
+npm install -g puppetty
+```
+
+The app resolves the engine at startup: the `PUPPETTY_ENGINE` env var (path
+to `bin/puppetty.js`) if set, then the repo dev tree, then the npm global
+install.
+
 ## Dev
 
 ```powershell
@@ -50,10 +65,18 @@ npm run dev      # tauri dev
 ```
 
 Requires Node (the engine is `../bin/puppetty.js`, resolved relative to this
-crate — dev mode only) and the Rust/Tauri toolchain.
+crate) and the Rust/Tauri toolchain.
+
+## Release
+
+Pushing a tag like `gui-v0.1.0` runs the `GUI release` GitHub Actions
+workflow: it builds the NSIS installer (`npx tauri build`) on
+`windows-latest` and publishes it to a GitHub Release. Bump the version in
+`src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` first so the
+installer filename matches the tag. A manual run from the Actions tab
+uploads the installer as a build artifact instead of publishing.
 
 The icon set is generated from `src-tauri/icon-source.png` (drawn by
 `scripts/make-icon.ps1`: a marionette crossbar puppeteering a terminal
 chevron). To change it, edit the script, rerun it, then
-`npx tauri icon src-tauri/icon-source.png`. (`bundle.active` stays `false`
-until release prep.)
+`npx tauri icon src-tauri/icon-source.png`.
