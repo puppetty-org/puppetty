@@ -26,7 +26,7 @@ const DEFAULT_PREFS = {
   fontFamily: 'Cascadia Mono, Consolas, monospace',
   fontSize: 14,
   opacity: 1,           // window/background opacity (0.5–1.0)
-  onLastTab: 'quit',    // when the last tab closes: 'quit' the app | 'newShell'
+  onLastTab: 'newShell', // when the last tab closes: 'quit' the app | 'newShell'
   aiCommand: 'claude -p', // CLI the rule editor pipes a prompt to for regex suggestions
   autoAnswer: false,    // default for the New-command "auto-answer prompts" toggle
 };
@@ -148,7 +148,9 @@ function applyTabPos(pos) {
     layoutEl.insertBefore(tabsEl, termsEl);
   } else {
     document.body.classList.remove('tabs-left');
-    topbarEl.insertBefore(tabsEl, topbarRightEl);
+    // Before the ＋ button, not #topbar-right — the button must end up on
+    // the RIGHT of the last tab.
+    topbarEl.insertBefore(tabsEl, document.getElementById('btn-companion'));
   }
   // Relocating the strip across DOM containers can leave WebView2's compositor
   // holding a stale (blank) layer for it until the next reflow — the tab is in
@@ -323,6 +325,29 @@ async function openSession(name, command, auto) {
   } catch (err) {
     s.term.write(`\r\n\x1b[31mattach failed: ${err}\x1b[0m\r\n`);
   }
+  sizeToGrid(s);
+}
+
+// First launch only: size the window so the terminal shows 120x28 cells.
+// Afterwards the window-state plugin remembers whatever the user resizes to.
+async function sizeToGrid(s) {
+  if (localStorage.getItem('puppetty-sized')) return;
+  try {
+    await new Promise((r) => requestAnimationFrame(r)); // ensure a real layout
+    const r = s.holder.querySelector('.xterm-screen').getBoundingClientRect();
+    if (!r.width || !r.height) return; // not rendered yet — retry on next open
+    const cellW = r.width / s.term.cols;
+    const cellH = r.height / s.term.rows;
+    // Everything around the grid (top bar, paddings, feed if shown) stays
+    // constant, so grow/shrink the window by the grid-size delta.
+    const w = Math.round(window.innerWidth + (120 - s.term.cols) * cellW);
+    const h = Math.round(window.innerHeight + (28 - s.term.rows) * cellH);
+    const win = window.__TAURI__.window.getCurrentWindow();
+    await win.setSize(new window.__TAURI__.dpi.LogicalSize(w, h));
+    localStorage.setItem('puppetty-sized', '1'); // only burn the flag on success
+  } catch (err) {
+    console.error('sizeToGrid failed:', err);
+  }
 }
 
 async function closeSession(name) {
@@ -400,7 +425,10 @@ async function startShell() {
     const auto = prefs.autoAnswer;
     const created = await invoke('start_session', { command: ['pwsh'], name: null, cwdOf: null, auto });
     await openSession(created, ['pwsh'], auto);
-  } catch { /* leave empty if the shell can't start */ }
+  } catch (err) {
+    console.error('startShell failed:', err);
+    alert(`failed to start a shell: ${err?.message ?? err}`);
+  }
 }
 
 // One event channel for all sessions; route by name.
@@ -514,6 +542,9 @@ function loadAppearanceControls() {
   document.getElementById('pref-aicommand').value = prefs.aiCommand ?? '';
   document.getElementById('pref-autoanswer').checked = prefs.autoAnswer;
   document.getElementById('pref-feed').checked = prefs.showFeed;
+  invoke('get_remote_debug')
+    .then((on) => { document.getElementById('pref-remotedebug').checked = !!on; })
+    .catch(() => {});
   document.getElementById('pref-theme').value = prefs.theme;
   populateFontSelect();
   document.getElementById('pref-fontsize').value = prefs.fontSize;
@@ -579,6 +610,9 @@ document.getElementById('pref-autoanswer').onchange = (e) => {
 };
 document.getElementById('pref-feed').onchange = (e) => {
   prefs.showFeed = e.target.checked; applyFeed(prefs.showFeed); savePrefs();
+};
+document.getElementById('pref-remotedebug').onchange = (e) => {
+  invoke('set_remote_debug', { enabled: e.target.checked }).catch((err) => alert(err));
 };
 document.getElementById('pref-theme').onchange = (e) => {
   prefs.theme = e.target.value; applyTheme(prefs.theme); savePrefs();
