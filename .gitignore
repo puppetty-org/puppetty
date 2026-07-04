@@ -14,6 +14,9 @@ node_modules/
 # Tauri auto-generated files
 /gui/src-tauri/gen/schemas/
 
+# Engine sidecar staged by gui/scripts/vendor.js
+/gui/src-tauri/binaries/
+
 # Environment / secrets
 .env
 .env.*

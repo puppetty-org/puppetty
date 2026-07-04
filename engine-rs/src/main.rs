@@ -487,7 +487,10 @@ async fn host_main(opts: RunOpts, attached: bool) -> i32 {
         .as_ref()
         .map(|p| p.cancelled.load(std::sync::atomic::Ordering::SeqCst))
         .unwrap_or(false);
-    if cancelled && code == 0 {
+    // Children killed by our own Ctrl+C report STATUS_CONTROL_C_EXIT on
+    // Windows rather than 0 — both mean "gave up on a prompt" here.
+    const STATUS_CONTROL_C_EXIT: i32 = -1_073_741_510; // 0xC000013A
+    if cancelled && (code == 0 || code == STATUS_CONTROL_C_EXIT) {
         code = 130;
     }
     code

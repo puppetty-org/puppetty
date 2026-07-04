@@ -1,0 +1,80 @@
+name: npm release
+
+# Publishes the Rust engine to npm as platform binary packages plus the
+# `puppetty` launcher shim (the esbuild/Biome model). Trigger: push a tag
+# like `npm-v0.2.0`. Requires the NPM_TOKEN repository secret.
+on:
+  push:
+    tags: ["npm-v*"]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            pkg: win32-x64
+          - os: ubuntu-latest
+            pkg: linux-x64-gnu
+          - os: ubuntu-24.04-arm
+            pkg: linux-arm64-gnu
+          - os: macos-13
+            pkg: darwin-x64
+          - os: macos-latest
+            pkg: darwin-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine-rs
+      - run: cargo build --release
+        working-directory: engine-rs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.pkg }}
+          path: engine-rs/target/release/puppetty-engine*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Publish platform packages and shim
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#npm-v}"
+          for dir in artifacts/bin-*; do
+            pkg="${dir#artifacts/bin-}"
+            os="${pkg%%-*}"
+            cpu="$(echo "$pkg" | cut -d- -f2)"
+            mkdir -p "pkg/$pkg"
+            cp "$dir"/puppetty-engine* "pkg/$pkg/"
+            chmod +x "pkg/$pkg"/puppetty-engine* || true
+            node -e "
+              require('fs').writeFileSync('pkg/$pkg/package.json', JSON.stringify({
+                name: '@puppetty/$pkg', version: '$VERSION',
+                description: 'puppetty engine binary ($pkg)',
+                os: ['$os' === 'win32' ? 'win32' : '$os'], cpu: ['$cpu' === 'x64' ? 'x64' : 'arm64'],
+                license: 'MIT',
+                repository: { type: 'git', url: 'git+https://github.com/puppetty-org/puppetty.git' },
+              }, null, 2))"
+            npm publish "pkg/$pkg" --access public
+          done
+          node -e "
+            const fs = require('fs');
+            const p = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            p.version = '$VERSION';
+            for (const k of Object.keys(p.optionalDependencies)) p.optionalDependencies[k] = '$VERSION';
+            fs.writeFileSync('package.json', JSON.stringify(p, null, 2))"
+          npm publish --access public

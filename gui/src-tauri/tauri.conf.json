@@ -26,6 +26,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "externalBin": ["binaries/puppetty-engine"],
     "icon": ["icons/icon.ico", "icons/icon.png"],
     "shortDescription": "Controllable terminal sessions for AI agents",
     "windows": {
