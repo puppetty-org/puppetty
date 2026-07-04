@@ -10,8 +10,9 @@ Controllable virtual terminal sessions for AI agents.
 npm install -g puppetty
 ```
 
-Requires **Node.js 22+** (current LTS; needed for stable `require(esm)`).
-That's all the setup the CLI needs — `puppetty` is now on your PATH. Optional
+The engine is a native Rust binary — npm just delivers the one for your
+platform (Node is only needed for npm/npx itself). `puppetty` is now on your
+PATH. Optional
 pieces you can add later:
 
 - **Policy** — auto-answer rules in `~/.puppetty/config.json` (user) or
@@ -30,11 +31,10 @@ secret/danger prompts. Two ways to get it:
 
 #### Install from the Releases page
 
-1. Install the engine (if you haven't): `npm install -g puppetty`
-2. Download and run the Windows installer (`puppetty-gui_..._x64-setup.exe`)
+1. Download and run the Windows installer (`puppetty-gui_..._x64-setup.exe`)
    from the [Releases page](https://github.com/puppetty-org/puppetty/releases)
-3. Launch **puppetty-gui** from the Start menu — it finds the globally
-   installed engine automatically
+2. Launch **puppetty-gui** from the Start menu — the engine is bundled
+   inside the app (nothing else to install)
 
 #### Run from source
 
@@ -44,11 +44,9 @@ in addition to Node:
 
 ```powershell
 git clone https://github.com/puppetty-org/puppetty
-cd puppetty
-npm install          # engine dependencies (the GUI drives ../bin/puppetty.js)
-cd gui
+cd puppetty/gui
 npm install
-npm run vendor       # copy xterm.js into ui/vendor
+npm run vendor       # copy xterm.js into ui/vendor + build the engine sidecar
 npm run dev          # launch the desktop app
 ```
 
@@ -232,7 +230,7 @@ Register it in Claude Code (`.mcp.json` or user config):
 {
   "mcpServers": {
     "puppetty": { "command": "npx", "args": ["-y", "puppetty", "mcp"] }
-    // during local dev: { "command": "node", "args": ["<repo>/bin/puppetty.js", "mcp"] }
+    // during local dev: { "command": "<repo>/engine-rs/target/release/puppetty-engine", "args": ["mcp"] }
   }
 }
 ```
@@ -259,10 +257,16 @@ Retention is pruned oldest-first (default 30 days / 200 MB total).
 
 ## Demos
 
+Interactive test children live in `engine-rs/examples/`; build them once
+with `cargo build --examples --release` in `engine-rs/`, then:
+
 ```powershell
-npm run demo            # rule-based auto-answering (y/N, yes/no, press Enter)
-npm run demo:decider    # free-text prompt answered by a mock decider
-npm run demo:password   # password prompt: never typed, cancelled after 3s
+# rule-based auto-answering (y/N, yes/no, press Enter)
+puppetty --auto -- engine-rs\target\release\examples\prompt_demo.exe
+# free-text prompt answered by a mock decider
+puppetty --decider engine-rs\target\release\examples\decider_echo.exe -- engine-rs\target\release\examples\freeform_demo.exe
+# password prompt: never typed, cancelled after 3s
+puppetty --auto --prompt-timeout 3 -- engine-rs\target\release\examples\password_demo.exe
 ```
 
 ## Status / roadmap

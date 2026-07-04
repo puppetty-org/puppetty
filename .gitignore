@@ -9,9 +9,13 @@ node_modules/
 
 # Rust / Tauri build artifacts (~2 GB — never commit)
 /gui/src-tauri/target/
+/engine-rs/target/
 
 # Tauri auto-generated files
 /gui/src-tauri/gen/schemas/
+
+# Engine sidecar staged by gui/scripts/vendor.js
+/gui/src-tauri/binaries/
 
 # Environment / secrets
 .env

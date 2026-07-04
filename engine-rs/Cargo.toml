@@ -1,0 +1,26 @@
+[package]
+name = "puppetty-engine"
+version = "0.1.0-alpha.0"
+edition = "2021"
+description = "puppetty session engine, Rust port (alpha): PTY host with a JSON-lines control protocol"
+license = "MIT"
+repository = "https://github.com/puppetty-org/puppetty"
+
+[dependencies]
+alacritty_terminal = "0.25"
+portable-pty = "0.9"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "io-std", "sync", "time", "process"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+fancy-regex = "0.16"
+keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native"] }
+clap = { version = "4", features = ["derive"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+dirs = "6"
+crossterm = "0.29"
+anyhow = "1"
+
+[profile.release]
+strip = true
+lto = true
