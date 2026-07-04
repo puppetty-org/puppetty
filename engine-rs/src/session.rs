@@ -44,6 +44,15 @@ pub fn resolve_executable(cmd: &str) -> String {
 /// through the command interpreter.
 #[cfg(windows)]
 fn wrap_batch_script(file: String, args: Vec<String>) -> (String, Vec<String>) {
+    if file.to_lowercase().ends_with(".ps1") {
+        // CreateProcess can't run .ps1 directly (Windows would ask which app
+        // opens it) — route through PowerShell.
+        let wrapped = ["-NoLogo".into(), "-File".into(), file]
+            .into_iter()
+            .chain(args)
+            .collect();
+        return ("powershell.exe".into(), wrapped);
+    }
     if file.to_lowercase().ends_with(".bat") || file.to_lowercase().ends_with(".cmd") {
         let wrapped = std::iter::once("/c".to_string())
             .chain(std::iter::once(file))
