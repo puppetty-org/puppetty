@@ -27,6 +27,41 @@ fn puppetty_home() -> PathBuf {
     PathBuf::from(home).join(".puppetty")
 }
 
+// GUI-process settings that must be readable BEFORE the webview exists
+// (localStorage lives inside it). Currently: opt-in remote debugging.
+fn gui_config_path() -> PathBuf {
+    puppetty_home().join("gui.json")
+}
+
+fn read_gui_config() -> Value {
+    std::fs::read_to_string(gui_config_path())
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_else(|| json!({}))
+}
+
+#[tauri::command]
+fn get_remote_debug() -> bool {
+    read_gui_config()["remoteDebugPort"].as_u64().is_some()
+}
+
+#[tauri::command]
+fn set_remote_debug(enabled: bool) -> Result<(), String> {
+    let mut cfg = read_gui_config();
+    let obj = cfg.as_object_mut().ok_or("bad gui.json")?;
+    if enabled {
+        obj.insert("remoteDebugPort".into(), 9223.into());
+    } else {
+        obj.remove("remoteDebugPort");
+    }
+    std::fs::create_dir_all(puppetty_home()).map_err(|e| e.to_string())?;
+    std::fs::write(
+        gui_config_path(),
+        serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())
+}
+
 // Path to the Rust engine binary (puppetty-engine), resolved once. Order:
 // PUPPETTY_ENGINE env var → the bundled sidecar next to this app's exe →
 // the repo dev tree (engine-rs/target) → PATH.
@@ -455,6 +490,19 @@ fn notify(app: AppHandle, title: String, body: String) -> Result<(), String> {
 }
 
 fn main() {
+    // Opt-in remote debugging (CDP): WebView2 reads this env var at webview
+    // creation, so it must be set before the builder runs. Toggled in
+    // Settings; off by default — CDP means full control of this window.
+    if let Some(port) = read_gui_config()["remoteDebugPort"].as_u64() {
+        let mut args = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").unwrap_or_default();
+        if !args.contains("--remote-debugging-port") {
+            if !args.is_empty() {
+                args.push(' ');
+            }
+            args.push_str(&format!("--remote-debugging-port={port}"));
+            std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", &args);
+        }
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
@@ -477,6 +525,8 @@ fn main() {
             cred_rm,
             ai_complete,
             notify,
+            get_remote_debug,
+            set_remote_debug,
         ])
         .run(tauri::generate_context!())
         .expect("error while running puppetty-gui");

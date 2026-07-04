@@ -542,6 +542,9 @@ function loadAppearanceControls() {
   document.getElementById('pref-aicommand').value = prefs.aiCommand ?? '';
   document.getElementById('pref-autoanswer').checked = prefs.autoAnswer;
   document.getElementById('pref-feed').checked = prefs.showFeed;
+  invoke('get_remote_debug')
+    .then((on) => { document.getElementById('pref-remotedebug').checked = !!on; })
+    .catch(() => {});
   document.getElementById('pref-theme').value = prefs.theme;
   populateFontSelect();
   document.getElementById('pref-fontsize').value = prefs.fontSize;
@@ -607,6 +610,9 @@ document.getElementById('pref-autoanswer').onchange = (e) => {
 };
 document.getElementById('pref-feed').onchange = (e) => {
   prefs.showFeed = e.target.checked; applyFeed(prefs.showFeed); savePrefs();
+};
+document.getElementById('pref-remotedebug').onchange = (e) => {
+  invoke('set_remote_debug', { enabled: e.target.checked }).catch((err) => alert(err));
 };
 document.getElementById('pref-theme').onchange = (e) => {
   prefs.theme = e.target.value; applyTheme(prefs.theme); savePrefs();
