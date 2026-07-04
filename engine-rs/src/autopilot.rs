@@ -172,14 +172,18 @@ pub fn attach_autopilot(session: Arc<Session>, opts: PilotOptions) -> Autopilot 
                     // only — it never sees secret values.
                     if m.rule.ai == Some(true) && cred_ref.is_none() {
                         let refs = list_refs();
-                        let decider_cmd = opts.decider.clone().or_else(|| {
-                            m.rule.decider.as_ref().and_then(|d| {
-                                opts.policy
-                                    .deciders
-                                    .get(d)
-                                    .and_then(|dd| dd.command.clone())
+                        let decider_cmd = opts
+                            .decider
+                            .clone()
+                            .or_else(|| {
+                                m.rule.decider.as_ref().and_then(|d| {
+                                    opts.policy
+                                        .deciders
+                                        .get(d)
+                                        .and_then(|dd| dd.command.clone())
+                                })
                             })
-                        });
+                            .or_else(|| default_decider(&opts.policy));
                         let Some(decider_cmd) = decider_cmd.filter(|_| !refs.is_empty()) else {
                             session.log_event(
                                 "prompt-detected",
@@ -269,13 +273,17 @@ pub fn attach_autopilot(session: Arc<Session>, opts: PilotOptions) -> Autopilot 
                 continue;
             }
 
-            let decider_cmd = opts.decider.clone().or_else(|| {
-                m.as_ref()
-                    .filter(|m| m.rule.action == "decider")
-                    .and_then(|m| m.rule.decider.as_ref())
-                    .and_then(|d| opts.policy.deciders.get(d))
-                    .and_then(|dd| dd.command.clone())
-            });
+            let decider_cmd = opts
+                .decider
+                .clone()
+                .or_else(|| {
+                    m.as_ref()
+                        .filter(|m| m.rule.action == "decider")
+                        .and_then(|m| m.rule.decider.as_ref())
+                        .and_then(|d| opts.policy.deciders.get(d))
+                        .and_then(|dd| dd.command.clone())
+                })
+                .or_else(|| default_decider(&opts.policy));
 
             if let Some(decider_cmd) = decider_cmd {
                 handled_state = Some(state_key);
@@ -307,6 +315,17 @@ pub fn attach_autopilot(session: Arc<Session>, opts: PilotOptions) -> Autopilot 
     });
 
     Autopilot { task, cancelled }
+}
+
+/// Config-level default LLM CLI: `deciders.default.command` in
+/// ~/.puppetty/config.json, used when no --decider flag is given. Users pick
+/// their own CLI (claude, codex, anything stdin→one-line); none configured
+/// means rules-only automation, which is fully supported.
+fn default_decider(policy: &Policy) -> Option<String> {
+    policy
+        .deciders
+        .get("default")
+        .and_then(|dd| dd.command.clone())
 }
 
 fn clip(s: &str) -> String {

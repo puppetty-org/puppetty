@@ -1,6 +1,10 @@
 # puppetty
 
-Controllable virtual terminal sessions for AI agents.
+**The terminal as an API.** Any interactive program becomes callable: type
+into it, read its rendered screen, wait for it to need input — over a JSON
+protocol. AI agents answer the prompts they should, known questions
+auto-answer by policy, secrets come from the OS keyring, and nothing ever
+hangs waiting for input.
 
 ![puppetty auto-answering interactive prompts](https://raw.githubusercontent.com/puppetty-org/puppetty/main/docs/demo.gif)
 
@@ -156,6 +160,31 @@ With `--auto`, puppetty answers prompts according to a layered policy;
 puppetty --auto -- npm create vite@latest my-app
 puppetty --decider "<your LLM CLI>" -- python setup.py
 ```
+
+The classic failure this prevents: an AI is following install instructions,
+the installer asks a question, and everything sits there until a timeout.
+Under puppetty the prompt is detected, answered by a rule or referred to an
+LLM with the screen as context — and the run keeps moving.
+
+### Choosing your LLM CLI (or none)
+
+The decider is any command that reads the screen from stdin and prints one
+line back — `claude -p`, `codex exec`, a shell script, whatever you have:
+
+- **Per run**: `--decider "codex exec"`
+- **Set once**: a `default` decider in `~/.puppetty/config.json`:
+
+  ```jsonc
+  { "deciders": { "default": { "command": "claude -p" } } }
+  ```
+
+- **Per rule**: a rule with `"action": "decider", "decider": "<name>"` routes
+  just that prompt to a named decider.
+
+**No AI CLI installed?** Everything still works: rules answer the known
+prompts, `wait --prompt` (or the MCP tools) tells the driving process a
+session needs input so *it* can decide, and `onUnanswered` cancels safely
+instead of hanging.
 
 Policy is JSONC, layered: built-in defaults ← `~/.puppetty/config.json`
 (user) ← `<cwd>/.puppetty/config.json` (project). First matching rule wins;

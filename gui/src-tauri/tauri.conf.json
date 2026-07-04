@@ -28,7 +28,7 @@
     "targets": ["nsis"],
     "externalBin": ["binaries/puppetty-engine"],
     "icon": ["icons/icon.ico", "icons/icon.png"],
-    "shortDescription": "Controllable terminal sessions for AI agents",
+    "shortDescription": "The terminal as an API — controllable sessions for AI agents",
     "windows": {
       "nsis": {
         "installMode": "currentUser"
