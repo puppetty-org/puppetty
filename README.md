@@ -310,6 +310,13 @@ puppetty --decider engine-rs\target\release\examples\decider_echo.exe -- engine-
 puppetty --auto --prompt-timeout 3 -- engine-rs\target\release\examples\password_demo.exe
 ```
 
+## Code signing & security
+
+See [CODE_SIGNING.md](CODE_SIGNING.md) for the code signing policy, build
+integrity, and privacy policy (short version: no telemetry, nothing leaves
+your machine unless you configure it to), and [SECURITY.md](SECURITY.md)
+for vulnerability reporting and the security model.
+
 ## Status / roadmap
 
 Working proof of concept (tested driving live full-screen TUIs on Windows).
