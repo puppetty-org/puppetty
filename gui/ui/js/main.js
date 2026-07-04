@@ -331,7 +331,10 @@ async function openSession(name, command, auto) {
 // First launch only: size the window so the terminal shows 120x28 cells.
 // Afterwards the window-state plugin remembers whatever the user resizes to.
 async function sizeToGrid(s) {
-  if (localStorage.getItem('puppetty-sized')) return;
+  // "First run" comes from the backend (no saved window state at boot):
+  // localStorage is per-profile, so dev and installed builds would each
+  // re-fire the sizing and clobber the restored window size.
+  if (window.__sizedThisRun || !(await invoke('is_first_run').catch(() => false))) return;
   try {
     await new Promise((r) => requestAnimationFrame(r)); // ensure a real layout
     const r = s.holder.querySelector('.xterm-screen').getBoundingClientRect();
@@ -344,7 +347,7 @@ async function sizeToGrid(s) {
     const h = Math.round(window.innerHeight + (28 - s.term.rows) * cellH);
     const win = window.__TAURI__.window.getCurrentWindow();
     await win.setSize(new window.__TAURI__.dpi.LogicalSize(w, h));
-    localStorage.setItem('puppetty-sized', '1'); // only burn the flag on success
+    window.__sizedThisRun = true; // once per process; plugin owns it after
   } catch (err) {
     console.error('sizeToGrid failed:', err);
   }
