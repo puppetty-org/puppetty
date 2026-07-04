@@ -59,8 +59,9 @@ escapes.
 ## Platform status
 
 - Windows is the primary target (ConPTY); full test suite + demos verified.
-- Unix: same code paths built and tested on Linux (WSL2 Ubuntu) — PTY spawn,
-  Unix-socket control endpoint, `sh -c` decider. Linux keyring uses the
+- Unix: same code paths built and tested on Linux (Docker `rust:latest`,
+  plus the ubuntu-latest CI job) — PTY spawn, Unix-socket control endpoint,
+  `sh -c` decider. Linux keyring uses the
   kernel keyutils (`linux-native` feature): secrets are per-session, not
   persisted across reboots; switch to a secret-service feature if you need
   persistence. macOS builds (apple-native keyring) but is untested.
