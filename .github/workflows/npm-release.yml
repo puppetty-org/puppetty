@@ -24,14 +24,14 @@ jobs:
             pkg: darwin-arm64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: engine-rs
       - run: cargo build --release
         working-directory: engine-rs
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: bin-${{ matrix.pkg }}
           path: engine-rs/target/release/puppetty-engine*
@@ -41,12 +41,12 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
       - name: Publish platform packages and shim
