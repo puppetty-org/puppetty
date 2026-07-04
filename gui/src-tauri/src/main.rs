@@ -7,7 +7,7 @@
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, WriteHalf};
@@ -27,16 +27,49 @@ fn puppetty_home() -> PathBuf {
     PathBuf::from(home).join(".puppetty")
 }
 
-// Dev-mode path to the engine CLI, resolved relative to this crate.
-fn puppetty_bin() -> String {
-    format!("{}/../../bin/puppetty.js", env!("CARGO_MANIFEST_DIR"))
+// Path to the engine CLI (bin/puppetty.js), resolved once. Order:
+// PUPPETTY_ENGINE env var → the dev tree next to this crate (running from a
+// repo clone) → the npm global install (`npm install -g puppetty`).
+fn puppetty_bin() -> Result<String, String> {
+    static BIN: OnceLock<Option<String>> = OnceLock::new();
+    BIN.get_or_init(|| {
+        if let Ok(p) = std::env::var("PUPPETTY_ENGINE") {
+            if !p.trim().is_empty() {
+                return Some(p);
+            }
+        }
+        let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../bin/puppetty.js");
+        if dev.exists() {
+            return Some(dev.to_string_lossy().into_owned());
+        }
+        // npm is a .cmd shim on Windows, so it must go through the shell.
+        let mut cmd = std::process::Command::new("cmd");
+        cmd.args(["/C", "npm", "root", "-g"]);
+        #[cfg(windows)]
+        std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
+        let out = cmd.output().ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let root = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let global = PathBuf::from(root).join("puppetty/bin/puppetty.js");
+        global
+            .exists()
+            .then(|| global.to_string_lossy().into_owned())
+    })
+    .clone()
+    .ok_or_else(|| {
+        "puppetty engine not found — install it with `npm install -g puppetty`, \
+         or set PUPPETTY_ENGINE to the path of bin/puppetty.js"
+            .to_string()
+    })
 }
 
 // Run the puppetty CLI, optionally piping `stdin_data`, and return stdout.
 async fn run_cli(args: &[&str], stdin_data: Option<String>) -> Result<String, String> {
     use tokio::io::AsyncWriteExt as _;
     let mut cmd = tokio::process::Command::new("node");
-    cmd.arg(puppetty_bin()).args(args);
+    cmd.arg(puppetty_bin()?).args(args);
     cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
     if stdin_data.is_some() {
         cmd.stdin(std::process::Stdio::piped());
@@ -114,7 +147,7 @@ async fn start_session(
         return Err("empty command".into());
     }
     let mut cmd = tokio::process::Command::new("node");
-    cmd.arg(puppetty_bin()).arg("run").arg("-d");
+    cmd.arg(puppetty_bin()?).arg("run").arg("-d");
     if let Some(n) = &name {
         cmd.args(["--name", n]);
     }
