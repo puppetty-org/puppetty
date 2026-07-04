@@ -22,13 +22,25 @@ pieces you can add later:
 - **MCP server** — register `puppetty mcp` in your agent's config; see
   [MCP server](#mcp-server-for-ai-agents).
 
-### GUI (from source)
+### GUI
 
-The desktop GUI — terminal tabs attached to live sessions, a decision feed,
-and an ask-human dialog for secret/danger prompts — is a Tauri 2 app in
-[`gui/`](gui/). It is **not included in the npm package** (there is no
-`puppetty gui` command and no prebuilt installers yet), so run it from a
-clone of this repo:
+The desktop GUI shows terminal tabs attached to live sessions, a decision
+feed of who typed what and which rules fired, and an ask-human dialog for
+secret/danger prompts. Two ways to get it:
+
+#### Install from the Releases page
+
+1. Install the engine (if you haven't): `npm install -g puppetty`
+2. Download and run the Windows installer (`puppetty-gui_..._x64-setup.exe`)
+   from the [Releases page](https://github.com/puppetty-org/puppetty/releases)
+3. Launch **puppetty-gui** from the Start menu — it finds the globally
+   installed engine automatically
+
+#### Run from source
+
+The GUI is a Tauri 2 app in [`gui/`](gui/); this path needs the
+[Rust / Tauri 2 toolchain](https://v2.tauri.app/start/prerequisites/)
+in addition to Node:
 
 ```powershell
 git clone https://github.com/puppetty-org/puppetty
@@ -40,8 +52,7 @@ npm run vendor       # copy xterm.js into ui/vendor
 npm run dev          # launch the desktop app
 ```
 
-This needs the [Rust / Tauri 2 toolchain](https://v2.tauri.app/start/prerequisites/)
-in addition to Node. See [`gui/README.md`](gui/README.md) for details.
+See [`gui/README.md`](gui/README.md) for the GUI's features and details.
 
 `puppetty claude` runs `claude` (or any command) inside a pseudo-terminal
 (ConPTY) session that **any other process can drive programmatically**: type
