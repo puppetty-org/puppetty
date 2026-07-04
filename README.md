@@ -22,13 +22,15 @@ pieces you can add later:
 - **MCP server** — register `puppetty mcp` in your agent's config; see
   [MCP server](#mcp-server-for-ai-agents).
 
-### GUI (from source)
+### GUI
 
 The desktop GUI — terminal tabs attached to live sessions, a decision feed,
-and an ask-human dialog for secret/danger prompts — is a Tauri 2 app in
-[`gui/`](gui/). It is **not included in the npm package** (there is no
-`puppetty gui` command and no prebuilt installers yet), so run it from a
-clone of this repo:
+and an ask-human dialog for secret/danger prompts — ships as a Windows
+installer on the [Releases page](https://github.com/puppetty-org/puppetty/releases).
+Install the engine with `npm install -g puppetty` (above), run the installer,
+and the app finds the engine automatically.
+
+To run the GUI from source instead (it's a Tauri 2 app in [`gui/`](gui/)):
 
 ```powershell
 git clone https://github.com/puppetty-org/puppetty
