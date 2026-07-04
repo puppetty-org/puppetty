@@ -21,7 +21,7 @@ const PREF_KEY = 'puppetty.prefs';
 const DEFAULT_PREFS = {
   lang: 'en',
   tabPos: 'top',        // 'top' (horizontal) | 'left' (vertical)
-  showFeed: true,
+  showFeed: false,
   theme: 'midnight',    // midnight | slate | light
   fontFamily: 'Cascadia Mono, Consolas, monospace',
   fontSize: 14,
@@ -100,7 +100,9 @@ function savePrefs() {
 }
 function currentXtermTheme() {
   const theme = THEMES[prefs.theme] || THEMES.midnight;
-  return { ...theme.xterm, background: hexToRgba(theme.xterm.background, prefs.opacity ?? 1) };
+  // Fully transparent xterm background: #terms carries the single tinted
+  // rgba layer — two stacked alpha layers compound to near-opaque.
+  return { ...theme.xterm, background: hexToRgba(theme.xterm.background, 0) };
 }
 
 function refitActive() {
@@ -128,7 +130,9 @@ function applyGlass() {
   root.setProperty('--bg-a', hexToRgba(theme.vars['--bg'], a));
   root.setProperty('--bg-alt-a', hexToRgba(theme.vars['--bg-alt'], a));
   root.setProperty('--term-bg-a', hexToRgba(theme.vars['--term-bg'], a));
-  const xbg = hexToRgba(theme.xterm.background, a);
+  // xterm itself stays fully transparent (see currentXtermTheme): #terms'
+  // --term-bg-a is the one tinted layer, matching the feed panel's look.
+  const xbg = hexToRgba(theme.xterm.background, 0);
   for (const s of sessions.values()) s.term.options.theme = { ...theme.xterm, background: xbg };
 }
 function applyFont() {
@@ -170,7 +174,7 @@ function applyAllPrefs() {
   applyTheme(prefs.theme); // also applies glass/opacity
   applyTabPos(prefs.tabPos);
   applyFeed(prefs.showFeed);
-  document.getElementById('btn-auto').classList.toggle('on', prefs.autoAnswer);
+  document.getElementById('btn-auto')?.classList.toggle('on', prefs.autoAnswer);
   // font is applied per-terminal at creation; applyFont() covers live changes
 }
 
@@ -287,7 +291,7 @@ function makeTerminal(name, command, auto) {
 
 function activate(name) {
   active = name;
-  document.getElementById('btn-companion').disabled = !name;
+  // ＋ button stays enabled: no active session just means a plain shell.
   for (const [n, s] of sessions) {
     s.holder.classList.toggle('hidden', n !== name);
     s.tab.classList.toggle('active', n === name);
@@ -345,7 +349,6 @@ function removeTab(name) {
     const next = sessions.keys().next().value;
     if (next) activate(next);
     else {
-      document.getElementById('btn-companion').disabled = true;
       renderBanner();
       feedEl.innerHTML = '';
       if (prefs.onLastTab === 'newShell') {
@@ -376,7 +379,7 @@ async function toggleTabAuto(name, entry) {
 async function setAutoAnswer(on) {
   prefs.autoAnswer = on;
   savePrefs();
-  document.getElementById('btn-auto').classList.toggle('on', on);
+  document.getElementById('btn-auto')?.classList.toggle('on', on);
   const cb = document.getElementById('pref-autoanswer');
   if (cb) cb.checked = on;
   for (const [name, s] of sessions) {
@@ -387,7 +390,8 @@ async function setAutoAnswer(on) {
     } catch { /* ignore */ }
   }
 }
-document.getElementById('btn-auto').onclick = () => setAutoAnswer(!prefs.autoAnswer);
+// The global auto toggle lives in Settings (pref-autoanswer) — no top-bar
+// button; per-tab AUTO badges toggle individual sessions.
 
 let lastShellSpawnAt = 0;
 async function startShell() {
@@ -436,7 +440,7 @@ window.addEventListener('resize', () => {
 // ---------------------------------------------------------------- actions
 
 document.getElementById('btn-companion').onclick = async () => {
-  if (!active) return;
+  if (!active) return startShell(); // no session yet: plain shell instead
   try {
     const auto = sessions.get(active)?.auto ?? prefs.autoAnswer;
     const created = await invoke('start_session', {
