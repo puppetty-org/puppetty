@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::io::Write;
+#[cfg(windows)]
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -37,6 +38,29 @@ pub fn resolve_executable(cmd: &str) -> String {
 #[cfg(not(windows))]
 pub fn resolve_executable(cmd: &str) -> String {
     cmd.to_string()
+}
+
+/// .bat/.cmd scripts can't be spawned directly under ConPTY — route them
+/// through the command interpreter.
+#[cfg(windows)]
+fn wrap_batch_script(file: String, args: Vec<String>) -> (String, Vec<String>) {
+    if file.to_lowercase().ends_with(".bat") || file.to_lowercase().ends_with(".cmd") {
+        let wrapped = std::iter::once("/c".to_string())
+            .chain(std::iter::once(file))
+            .chain(args)
+            .collect();
+        (
+            std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".into()),
+            wrapped,
+        )
+    } else {
+        (file, args)
+    }
+}
+
+#[cfg(not(windows))]
+fn wrap_batch_script(file: String, args: Vec<String>) -> (String, Vec<String>) {
+    (file, args)
 }
 
 pub struct SpawnOptions {
@@ -88,16 +112,7 @@ impl Session {
     /// Spawn the child under a PTY, start the output/exit pumps, and write
     /// the session registry entry. Must be called inside a tokio runtime.
     pub fn spawn(opts: SpawnOptions) -> anyhow::Result<Arc<Session>> {
-        let mut file = resolve_executable(&opts.command);
-        let mut args = opts.args.clone();
-        #[cfg(windows)]
-        if file.to_lowercase().ends_with(".bat") || file.to_lowercase().ends_with(".cmd") {
-            args = std::iter::once("/c".to_string())
-                .chain(std::iter::once(file))
-                .chain(args)
-                .collect();
-            file = std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".into());
-        }
+        let (file, args) = wrap_batch_script(resolve_executable(&opts.command), opts.args.clone());
 
         let pty = native_pty_system();
         let pair = pty.openpty(PtySize {
