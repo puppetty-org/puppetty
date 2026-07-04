@@ -10,8 +10,10 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::sync::watch;
 
+use crate::eventlog::EventLog;
+use crate::policy::{evaluate, Policy};
 use crate::protocol::{is_promptish, key_seq, meta_path, pipe_path};
-use crate::screen::Screen;
+use crate::screen::{Screen, Snapshot};
 
 /// ConPTY needs a real executable path — resolve bare names via PATH/PATHEXT.
 #[cfg(windows)]
@@ -47,7 +49,12 @@ pub struct SpawnOptions {
     /// Grace period between child exit and host shutdown (clients get a
     /// window to read the final screen; the Node engine uses 3s detached).
     pub exit_grace: Duration,
+    pub logger: Option<Arc<EventLog>>,
+    /// Used to classify prompts for read/wait clients.
+    pub policy: Option<Arc<Policy>>,
 }
+
+type AutoToggle = Box<dyn FnMut(bool) -> bool + Send>;
 
 pub struct Session {
     pub name: String,
@@ -71,6 +78,10 @@ pub struct Session {
     pub mirror: Mutex<Option<UnboundedSender<Vec<u8>>>>,
     /// Flipped once cleanup is done and the host process should exit.
     pub shutdown: watch::Sender<bool>,
+    pub logger: Option<Arc<EventLog>>,
+    pub policy: Option<Arc<Policy>>,
+    /// Runtime autopilot toggle wired by the host (GUI set-auto op).
+    pub auto_toggle: Mutex<Option<AutoToggle>>,
 }
 
 impl Session {
@@ -130,6 +141,9 @@ impl Session {
             next_attach_id: AtomicU64::new(1),
             mirror: Mutex::new(None),
             shutdown,
+            logger: opts.logger.clone(),
+            policy: opts.policy.clone(),
+            auto_toggle: Mutex::new(None),
         });
 
         session.write_meta()?;
@@ -175,6 +189,9 @@ impl Session {
             s.exited.store(true, Ordering::SeqCst);
             *s.exit_code.lock().unwrap() = Some(code);
             s.broadcast(json!({ "event": "exit", "exitCode": code }));
+            if let Some(logger) = &s.logger {
+                logger.close(code);
+            }
             tokio::time::sleep(grace).await;
             let _ = std::fs::remove_file(meta_path(&s.name));
             let _ = s.shutdown.send(true);
@@ -200,9 +217,30 @@ impl Session {
         Ok(())
     }
 
+    pub fn is_exited(&self) -> bool {
+        self.exited.load(Ordering::SeqCst)
+    }
+
+    pub fn last_data_instant(&self) -> Instant {
+        *self.last_data.lock().unwrap()
+    }
+
+    pub fn snapshot(&self, scrollback: bool) -> Snapshot {
+        self.screen.lock().unwrap().snapshot(scrollback)
+    }
+
+    pub fn log_event(&self, kind: &str, detail: Value) {
+        if let Some(logger) = &self.logger {
+            logger.event(kind, detail);
+        }
+    }
+
     fn on_data(&self, chunk: &[u8]) {
         *self.last_data.lock().unwrap() = Instant::now();
         self.screen.lock().unwrap().write(chunk);
+        if let Some(logger) = &self.logger {
+            logger.output(chunk);
+        }
         self.answer_cursor_queries(chunk);
         if let Some(mirror) = self.mirror.lock().unwrap().as_ref() {
             let _ = mirror.send(chunk.to_vec());
@@ -297,6 +335,10 @@ impl Session {
 
     /// Register an attach client: push channel gets {event:...} lines.
     pub fn attach_client(&self, tx: UnboundedSender<String>, req: &Value) -> u64 {
+        self.log_event(
+            "attach",
+            json!({ "source": req["source"].as_str().unwrap_or("attach") }),
+        );
         let (cols, rows) = *self.size.lock().unwrap();
         if let (Some(c), Some(r)) = (req["cols"].as_u64(), req["rows"].as_u64()) {
             if (c as u16, r as u16) != (cols, rows) {
@@ -331,11 +373,14 @@ impl Session {
     }
 
     pub fn detach_client(&self, id: u64) {
-        self.attach.lock().unwrap().remove(&id);
+        if self.attach.lock().unwrap().remove(&id).is_some() {
+            self.log_event("detach", json!({}));
+        }
     }
 
     /// One-shot control op — same request/response shapes as the Node engine.
     pub async fn handle_request(self: &Arc<Self>, req: Value) -> Value {
+        let source = req["source"].as_str().unwrap_or("pipe").to_string();
         match req["op"].as_str().unwrap_or("") {
             "info" => {
                 let (cols, rows) = *self.size.lock().unwrap();
@@ -356,6 +401,12 @@ impl Session {
                 if self.exited.load(Ordering::SeqCst) {
                     return json!({ "ok": false, "error": "process has exited" });
                 }
+                self.log_event(
+                    "send",
+                    json!({
+                    "text": req["data"], "enter": req["enter"].as_bool() == Some(true),
+                    "source": source }),
+                );
                 self.write(req["data"].as_str().unwrap_or(""));
                 if req["enter"].as_bool() == Some(true) {
                     // Small gap so TUI apps register the text before Enter.
@@ -369,6 +420,7 @@ impl Session {
                 if self.exited.load(Ordering::SeqCst) {
                     return json!({ "ok": false, "error": "process has exited" });
                 }
+                self.log_event("keys", json!({ "keys": req["keys"], "source": source }));
                 let keys: Vec<String> = req["keys"]
                     .as_array()
                     .map(|a| {
@@ -398,7 +450,7 @@ impl Session {
                 );
                 out
             }
-            "wait" => self.wait(&req).await,
+            "wait" => self.wait(&req, &source).await,
             "resize" => {
                 let cols = req["cols"].as_u64().unwrap_or(120) as u16;
                 let rows = req["rows"].as_u64().unwrap_or(30) as u16;
@@ -406,6 +458,7 @@ impl Session {
                 json!({ "ok": true })
             }
             "kill" => {
+                self.log_event("kill", json!({ "source": source }));
                 let s = self.clone();
                 tokio::spawn(async move {
                     tokio::time::sleep(Duration::from_millis(10)).await;
@@ -413,7 +466,18 @@ impl Session {
                 });
                 json!({ "ok": true })
             }
-            "set-auto" => json!({ "ok": false, "error": "auto toggle not supported" }),
+            "set-auto" => {
+                let mut toggle = self.auto_toggle.lock().unwrap();
+                match toggle.as_mut() {
+                    None => json!({ "ok": false, "error": "auto toggle not supported" }),
+                    Some(f) => {
+                        let enabled = req["enabled"].as_bool() == Some(true);
+                        let auto = f(enabled);
+                        self.log_event("set-auto", json!({ "enabled": enabled, "source": source }));
+                        json!({ "ok": true, "auto": auto })
+                    }
+                }
+            }
             other => json!({ "ok": false, "error": format!("unknown op: {other}") }),
         }
     }
@@ -421,7 +485,7 @@ impl Session {
     /// Block until the first requested condition is met. Mirrors the Node
     /// engine: pattern / gone / stable / prompt / idle, with exit and timeout
     /// always active; bare waits default to idle 2000ms.
-    async fn wait(self: &Arc<Self>, req: &Value) -> Value {
+    async fn wait(self: &Arc<Self>, req: &Value, source: &str) -> Value {
         let timeout_ms = req["timeoutMs"].as_u64().unwrap_or(60_000);
         let stable = req["stable"].as_u64();
         let prompt = req["prompt"].as_bool() == Some(true);
@@ -523,6 +587,20 @@ impl Session {
             }
         };
 
+        let snap = self.snapshot(false);
+        let mut detail = json!({
+            "reason": reason,
+            "waitedMs": started.elapsed().as_millis() as u64,
+            "source": source,
+        });
+        if let Some(p) = req["pattern"].as_str() {
+            detail["pattern"] = p.into();
+        }
+        if let Some(g) = req["gone"].as_str() {
+            detail["gone"] = g.into();
+        }
+        self.log_event("wait", detail);
+
         let mut out = json!({
             "ok": true,
             "reason": reason,
@@ -530,8 +608,38 @@ impl Session {
             "alive": !self.exited.load(Ordering::SeqCst),
             "exitCode": *self.exit_code.lock().unwrap(),
         });
+        if reason == "prompt" {
+            merge(&mut out, self.classify_prompt(&snap.lines));
+        }
         merge(&mut out, self.snapshot_value(false));
         out
+    }
+
+    /// Classify the last visible line against the policy so clients (GUI or
+    /// agent) know who may answer. Returns {} without a policy or prompt line.
+    fn classify_prompt(&self, lines: &[String]) -> Value {
+        let Some(policy) = &self.policy else {
+            return json!({});
+        };
+        let line = lines
+            .iter()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .map(|l| l.trim().to_string())
+            .unwrap_or_default();
+        if line.is_empty() {
+            return json!({});
+        }
+        let m = evaluate(policy, &line, &lines.join("\n"));
+        json!({
+            "promptLine": line,
+            "promptClass": m.as_ref().map(|m| m.class).unwrap_or("unmatched"),
+            "promptRule": m.as_ref().and_then(|m| m.rule.name.clone()),
+            "promptAction": m.as_ref().map(|m| m.rule.action.clone()),
+            "promptText": m.as_ref().and_then(|m| {
+                (m.class == "auto").then(|| m.rule.text.clone()).flatten()
+            }),
+        })
     }
 }
 
@@ -561,6 +669,8 @@ mod tests {
             rows: 24,
             cwd: ".".into(),
             exit_grace: Duration::from_millis(100),
+            logger: None,
+            policy: None,
         })
         .unwrap();
 

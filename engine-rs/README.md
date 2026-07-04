@@ -15,23 +15,33 @@ ConPTY on Windows), [`alacritty_terminal`](https://crates.io/crates/alacritty_te
 
 ## Status
 
-Works (verified against the Node CLI driving the same live session):
+Ported and verified (including against the Node CLI driving the same live
+session, and the repo's demo scripts running under the Rust autopilot):
 
-- `run -d` detached sessions, `run` attached (raw stdin/stdout bridge)
+- `run -d` detached sessions, `run` attached, implicit run (`puppetty <cmd>`),
+  `attach` with Ctrl+] detach
 - Control ops: `send` (with Enter delay), `keys`, `read` (+ scrollback),
   `wait` (`pattern`/`gone`/`stable`/`prompt`/`idle`, `sinceStart`, timeout,
-  exit), `resize`, `info`, `kill`, `attach` (input/resize/detach + data/exit
-  events)
-- Session registry entries compatible with the Node engine's `list`
+  exit) with prompt classification (`promptClass`/`promptRule`/…), `resize`,
+  `info`, `kill`, `set-auto`, `attach` event streams
+- Autopilot & policy: layered JSONC config (defaults ← user ← project),
+  rule severity classes, danger-word escalation, `{key}` expansion, loop
+  guard (exit 130), onUnanswered cancel, decider (SEND/ENTER/CANCEL/WAIT),
+  AI credential choice (CRED:<name>)
+- Credentials in the OS keyring (`cred set/list/rm`, `--stdin`), names-only
+  registry; `config show` / `config validate`
+- Session logs: asciinema v2 `.cast` + structured `.jsonl` with source
+  attribution and retention pruning
+- MCP server over stdio (all 7 tools, hand-rolled JSON-RPC)
 - ConPTY cursor-query handshake: the engine answers `ESC[6n` cursor reports
   (ConPTY blocks the child until the first reply; TUIs also query at will)
 
-Not yet ported (the Node engine remains the reference for these):
+Known gaps vs the Node engine:
 
-- Autopilot & policy (rules, severity classes, danger words, decider)
-- Prompt classification in `wait` responses (`promptClass` etc.)
-- Credentials (OS keyring), session logs (.cast/.jsonl), MCP server
-- Attach replay preserves text only (no colors/attributes yet)
+- Attach replay repaints text only (no colors/attributes yet — the Node
+  engine uses xterm.js's serialize addon)
+- User-config regexes run on fancy-regex: JS syntax largely works
+  (lookaround, backrefs), but exotic JS-only constructs may differ
 - Unix (code paths exist, only Windows is tested — same as the Node engine)
 
 ## Build & test

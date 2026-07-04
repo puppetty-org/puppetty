@@ -79,7 +79,15 @@ where
         if attach_id.is_some() {
             // Attached connections accept input/resize/detach only.
             match req["op"].as_str().unwrap_or("") {
-                "input" => session.write(req["data"].as_str().unwrap_or("")),
+                "input" => {
+                    let data = req["data"].as_str().unwrap_or("");
+                    // Content is never logged: a human may be typing a secret.
+                    session.log_event(
+                        "stdin",
+                        json!({ "bytes": data.len(), "source": req["source"].as_str().unwrap_or("attach") }),
+                    );
+                    session.write(data);
+                }
                 "resize" => {
                     let cols = req["cols"].as_u64().unwrap_or(120) as u16;
                     let rows = req["rows"].as_u64().unwrap_or(30) as u16;
