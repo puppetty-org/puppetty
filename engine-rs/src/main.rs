@@ -163,7 +163,7 @@ const SUBCOMMANDS: &[&str] = &[
 
 #[tokio::main]
 async fn main() {
-    // `puppetty claude` means `puppetty run claude` — same implicit-run
+    // `puppetty python` means `puppetty run python` — same implicit-run
     // convention as the Node CLI.
     let mut argv: Vec<String> = std::env::args().collect();
     if let Some(first) = argv.get(1) {
