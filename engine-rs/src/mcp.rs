@@ -188,17 +188,25 @@ async fn spawn_detached(args: Vec<String>) -> Result<String, String> {
         .stderr(std::process::Stdio::piped());
     #[cfg(windows)]
     cmd.creation_flags(0x0800_0000);
-    let out = cmd.output().await.map_err(|e| e.to_string())?;
-    if out.status.success() {
-        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
-    } else {
-        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        Err(if err.is_empty() {
-            format!("puppetty run exited {:?}", out.status.code())
-        } else {
-            err
-        })
+    // First stdout line only — the detached host inherits `run -d`'s stdout
+    // pipe on Windows, so waiting for EOF (output().await) hangs forever.
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    let stdout = child.stdout.take().ok_or("no stdout")?;
+    let mut reader = tokio::io::BufReader::new(stdout);
+    let mut line = String::new();
+    let read = tokio::io::AsyncBufReadExt::read_line(&mut reader, &mut line);
+    let n = tokio::time::timeout(std::time::Duration::from_secs(20), read)
+        .await
+        .map_err(|_| "session did not start within 20s".to_string())?
+        .map_err(|e| e.to_string())?;
+    tokio::spawn(async move {
+        let _ = child.wait().await;
+    });
+    let name = line.trim().to_string();
+    if n == 0 || name.is_empty() {
+        return Err("session failed to start".into());
     }
+    Ok(name)
 }
 
 async fn call_tool(name: &str, args: &Value) -> Value {

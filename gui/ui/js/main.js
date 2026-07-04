@@ -148,7 +148,9 @@ function applyTabPos(pos) {
     layoutEl.insertBefore(tabsEl, termsEl);
   } else {
     document.body.classList.remove('tabs-left');
-    topbarEl.insertBefore(tabsEl, topbarRightEl);
+    // Before the ＋ button, not #topbar-right — the button must end up on
+    // the RIGHT of the last tab.
+    topbarEl.insertBefore(tabsEl, document.getElementById('btn-companion'));
   }
   // Relocating the strip across DOM containers can leave WebView2's compositor
   // holding a stale (blank) layer for it until the next reflow — the tab is in
