@@ -924,6 +924,7 @@ async fn cmd_config(action: &str) -> i32 {
             let out = json!({
                 "rules": rules,
                 "dangerWords": p.danger_words,
+                "onDanger": p.on_danger,
                 "onUnanswered": { "afterSec": p.on_unanswered.after_sec, "do": p.on_unanswered.action },
                 "sources": { "user": p.sources.0, "project": p.sources.1 },
                 "userConfigPath": user_config_path().to_string_lossy(),

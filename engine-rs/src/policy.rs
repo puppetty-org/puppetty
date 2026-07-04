@@ -81,6 +81,9 @@ pub struct CompiledRule {
 pub struct Policy {
     pub rules: Vec<Rule>, // including disabled, for `config show`
     pub danger_words: Vec<String>,
+    /// Who answers when a danger word is visible: "human" (default — never
+    /// automated) or "decider" (refer to the LLM with an explicit caution).
+    pub on_danger: String,
     pub on_unanswered: OnUnanswered,
     pub deciders: HashMap<String, DeciderDef>,
     pub logging: Logging,
@@ -92,6 +95,10 @@ pub struct Policy {
 pub struct Match<'a> {
     pub rule: &'a Rule,
     pub class: &'static str, // auto | confirm | forbid | credential
+    /// True when the class was escalated to confirm by a danger word (as
+    /// opposed to an explicit confirm rule) — the onDanger policy may route
+    /// these to the decider instead of a human.
+    pub danger: bool,
 }
 
 fn default_rules() -> Vec<Rule> {
@@ -253,6 +260,13 @@ pub fn load_policy(cwd: &str) -> Result<Policy, String> {
         Some(v) => serde_json::from_value(v).map_err(|e| e.to_string())?,
         None => default_danger_words(),
     };
+    let on_danger = match pick("onDanger") {
+        Some(v) => match v.as_str() {
+            Some(s @ ("human" | "decider")) => s.to_string(),
+            _ => return Err("onDanger must be \"human\" or \"decider\"".into()),
+        },
+        None => "human".to_string(),
+    };
     let merge_obj = |key: &str, base: Value| -> Value {
         let mut out = base;
         for layer in [user.as_ref(), project.as_ref()].into_iter().flatten() {
@@ -302,6 +316,7 @@ pub fn load_policy(cwd: &str) -> Result<Policy, String> {
     Ok(Policy {
         rules,
         danger_words,
+        on_danger,
         on_unanswered,
         deciders,
         logging,
@@ -341,16 +356,19 @@ pub fn evaluate<'a>(policy: &'a Policy, line: &str, screen: &str) -> Option<Matc
                 }
             }
         };
+        let mut danger = false;
         if class == "auto" {
             if let Some(re) = &policy.danger_re {
                 if re.is_match(screen).unwrap_or(false) {
                     class = "confirm";
+                    danger = true;
                 }
             }
         }
         return Some(Match {
             rule: &c.rule,
             class,
+            danger,
         });
     }
     None
@@ -434,7 +452,9 @@ mod tests {
             "Overwrite existing file? [y/N]",
         )
         .unwrap();
+        assert_eq!(p.on_danger, "human"); // safe default
         assert_eq!(m.class, "confirm"); // danger word "overwrite" escalates
+        assert!(m.danger); // ...marked as escalation, not an explicit confirm rule
         let m = evaluate(&p, "Continue? [y/N]", "Continue? [y/N]").unwrap();
         assert_eq!(m.class, "auto");
         let m = evaluate(&p, "Password:", "Password:").unwrap();

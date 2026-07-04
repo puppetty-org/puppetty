@@ -252,19 +252,30 @@ pub fn attach_autopilot(session: Arc<Session>, opts: PilotOptions) -> Autopilot 
                 }
 
                 if m.class == "forbid" || m.class == "confirm" {
-                    handled_state = Some(state_key);
-                    let rule_name = m.rule.name.clone().unwrap_or_default();
-                    session.log_event(
-                        "prompt-detected",
-                        json!({
-                        "line": clip(&line), "class": m.class, "rule": rule_name }),
-                    );
-                    mark_unanswered!(if m.class == "forbid" {
-                        format!("rule:{rule_name} (class forbid — never automated)")
-                    } else {
-                        format!("rule:{rule_name} (class confirm — needs a human; no GUI attached)")
-                    });
-                    continue;
+                    // onDanger "decider": a danger-word escalation (not an
+                    // explicit confirm rule) may fall through to the LLM,
+                    // which gets an extra caution preamble.
+                    let danger_to_decider = m.class == "confirm"
+                        && m.danger
+                        && opts.policy.on_danger == "decider"
+                        && (opts.decider.is_some() || default_decider(&opts.policy).is_some());
+                    if !danger_to_decider {
+                        handled_state = Some(state_key);
+                        let rule_name = m.rule.name.clone().unwrap_or_default();
+                        session.log_event(
+                            "prompt-detected",
+                            json!({
+                            "line": clip(&line), "class": m.class, "rule": rule_name }),
+                        );
+                        mark_unanswered!(if m.class == "forbid" {
+                            format!("rule:{rule_name} (class forbid — never automated)")
+                        } else {
+                            format!(
+                                "rule:{rule_name} (class confirm — needs a human; no GUI attached)"
+                            )
+                        });
+                        continue;
+                    }
                 }
             }
 
@@ -272,6 +283,13 @@ pub fn attach_autopilot(session: Arc<Session>, opts: PilotOptions) -> Autopilot 
                 handled_state = Some(state_key);
                 continue;
             }
+
+            let danger_visible = opts
+                .policy
+                .danger_re
+                .as_ref()
+                .map(|re| re.is_match(&screen_text).unwrap_or(false))
+                .unwrap_or(false);
 
             let decider_cmd = opts
                 .decider
@@ -286,11 +304,27 @@ pub fn attach_autopilot(session: Arc<Session>, opts: PilotOptions) -> Autopilot 
                 .or_else(|| default_decider(&opts.policy));
 
             if let Some(decider_cmd) = decider_cmd {
+                // onDanger "human": danger words visible on an unmatched
+                // prompt also mean a human decides, not the LLM.
+                if danger_visible && opts.policy.on_danger == "human" {
+                    handled_state = Some(state_key);
+                    session.log_event(
+                        "prompt-detected",
+                        json!({ "line": clip(&line), "class": "confirm", "danger": true }),
+                    );
+                    mark_unanswered!(
+                        "danger words visible — needs a human (onDanger: human)".to_string()
+                    );
+                    continue;
+                }
                 handled_state = Some(state_key);
                 log(&format!("asking decider about: {:?}", clip_n(&line, 80)));
-                session.log_event("decider-asked", json!({ "line": clip(&line) }));
+                session.log_event(
+                    "decider-asked",
+                    json!({ "line": clip(&line), "danger": danger_visible }),
+                );
                 let tail = tail_chars(&screen_text, 2_000);
-                let verdict = ask_decider(&decider_cmd, &tail).await;
+                let verdict = ask_decider(&decider_cmd, &tail, danger_visible).await;
                 if session.is_exited() {
                     continue;
                 }

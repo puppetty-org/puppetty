@@ -86,10 +86,17 @@ async fn run_decider(decider_cmd: &str, input: String, timeout: Duration) -> Str
     }
 }
 
-pub async fn ask_decider(decider_cmd: &str, tail: &str) -> Verdict {
+/// Prepended when danger words are visible and onDanger routes to the
+/// decider anyway: the LLM is told to be explicitly cautious.
+const DANGER_CAUTION: &str = "CAUTION: the output below contains potentially destructive wording (e.g. delete/remove/overwrite/force). Only reply SEND or ENTER if the action is clearly safe and expected from the context; when in doubt, reply CANCEL.
+
+";
+
+pub async fn ask_decider(decider_cmd: &str, tail: &str, danger: bool) -> Verdict {
+    let caution = if danger { DANGER_CAUTION } else { "" };
     let out = run_decider(
         decider_cmd,
-        format!("{INSTRUCTIONS}{tail}\n"),
+        format!("{caution}{INSTRUCTIONS}{tail}\n"),
         Duration::from_secs(60),
     )
     .await;

@@ -199,6 +199,8 @@ tombstones a default).
     { "name": "project-name", "match": "Project name:\\s*$", "action": "send", "text": "my-app" },
   ],
   "dangerWords": ["\\boverwrite\\b", "git push"],   // escalate matches to confirm
+  "onDanger": "human",   // or "decider": let your LLM judge danger-word
+                         // prompts too (it gets an explicit caution preamble)
   "onUnanswered": { "afterSec": 30, "do": "cancel" },
   "logging": { "enabled": true, "retentionDays": 30, "maxTotalMB": 200 },
 }
@@ -210,6 +212,9 @@ Severity classes decide who may answer:
 - **confirm** — needs a human; any prompt containing a danger word
   (delete/overwrite/force/`git push`/…) is escalated here even if an auto
   rule matches. Headless: falls through to `onUnanswered` (Ctrl+C → kill).
+  Prefer LLM judgment for these? Set `"onDanger": "decider"` — danger-word
+  escalations (never explicit confirm/forbid rules) go to your decider with
+  a caution preamble instead; a regex can't weigh ambiguity, an LLM can.
 - **forbid** — never automated. Password/passphrase/token prompts live here;
   they are answered by a human or not at all.
 - **credential** — a rule with `"action": "credential", "ref": "name"` is
