@@ -52,6 +52,19 @@ jobs:
             The CLI/agent toolchain (`puppetty` command, MCP server) can
             additionally be installed via `npm install -g puppetty`, but
             the GUI does not require it.
+
+            ## ⚠️ Windows SmartScreen warning
+
+            The installer is not yet code-signed, so Windows shows a
+            SmartScreen warning on first run. This is expected for new
+            unsigned binaries — click **More info** (詳細情報), then
+            **Run anyway** (実行):
+
+            <img src="https://raw.githubusercontent.com/puppetty-org/puppetty/main/docs/smartscreen-1.png" width="380"> <img src="https://raw.githubusercontent.com/puppetty-org/puppetty/main/docs/smartscreen-2.png" width="380">
+
+            Every release is built from tagged source by GitHub Actions and
+            published immutably — see the
+            [code signing policy](https://github.com/puppetty-org/puppetty/blob/main/CODE_SIGNING.md).
       - name: Upload artifact (manual run)
         if: "!startsWith(github.ref, 'refs/tags/gui-v')"
         uses: actions/upload-artifact@v7
