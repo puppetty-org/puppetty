@@ -103,6 +103,21 @@ pub struct Match<'a> {
 
 fn default_rules() -> Vec<Rule> {
     let raw = json!([
+        // Idle shell/REPL prompts are not questions: action "ignore" makes
+        // the autopilot skip them silently (no events, no escalation), so
+        // interactive tabs don't spam the decision feed.
+        { "name": "windows-shell-prompt",
+          "match": "^(PS )?[A-Za-z]:\\\\[^<>]*>\\s*$",
+          "action": "ignore" },
+        { "name": "unix-shell-prompt",
+          "match": "^[\\w.~/-]+@[^\\n]*[$#%]\\s*$",
+          "action": "ignore" },
+        { "name": "arrow-shell-prompt",
+          "match": "[❯➜]\\s*$",
+          "action": "ignore" },
+        { "name": "repl-prompt",
+          "match": "^(>>>|In \\[\\d+\\]:|irb\\([^)]*\\)[^>]*>)\\s*$",
+          "action": "ignore" },
         { "name": "secrets",
           "match": "(password|passphrase|passcode|secret|api[ _-]?key|token)\\s*[:：]?\\s*$",
           "flags": "i", "action": "forbid" },
@@ -340,7 +355,13 @@ pub fn evaluate<'a>(policy: &'a Policy, line: &str, screen: &str) -> Option<Matc
         if !c.regex.is_match(target).unwrap_or(false) {
             continue;
         }
-        let mut class: &'static str = if c.rule.action == "credential" {
+        let mut class: &'static str = if c.rule.action == "ignore" {
+            return Some(Match {
+                rule: &c.rule,
+                class: "ignore",
+                danger: false,
+            });
+        } else if c.rule.action == "credential" {
             "credential"
         } else {
             match c.rule.class.as_deref() {
@@ -459,5 +480,29 @@ mod tests {
         assert_eq!(m.class, "auto");
         let m = evaluate(&p, "Password:", "Password:").unwrap();
         assert_eq!(m.class, "forbid");
+    }
+
+    #[test]
+    fn shell_prompts_are_ignored() {
+        let p = policy();
+        for line in [
+            r"PS C:\Users\Hinaser\projects\puppetty>",
+            r"C:\Windows\System32>",
+            "user@host:~/projects$",
+            "~/projects ❯",
+            ">>>",
+            "In [3]:",
+        ] {
+            let m = evaluate(&p, line, line).expect(line);
+            assert_eq!(m.class, "ignore", "line: {line}");
+        }
+        // Real questions must NOT be swallowed by the ignore rules.
+        for line in ["Continue? [y/N]", "Password:", "Press Enter to finish..."] {
+            assert_ne!(
+                evaluate(&p, line, line).unwrap().class,
+                "ignore",
+                "line: {line}"
+            );
+        }
     }
 }

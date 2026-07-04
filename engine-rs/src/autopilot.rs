@@ -140,6 +140,13 @@ pub fn attach_autopilot(session: Arc<Session>, opts: PilotOptions) -> Autopilot 
             let m = evaluate(&opts.policy, &line, &screen_text);
 
             if let Some(m) = &m {
+                // "ignore" rules: an idle shell/REPL prompt, not a question —
+                // mark handled with no events, no escalation.
+                if m.class == "ignore" {
+                    handled_state = Some(state_key);
+                    continue;
+                }
+
                 if m.class == "auto" && (m.rule.action == "send" || m.rule.action == "enter") {
                     let count = answer_counts.entry(line.clone()).or_insert(0);
                     *count += 1;
