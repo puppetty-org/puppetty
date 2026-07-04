@@ -31,5 +31,16 @@ answering as a privilege hierarchy:
 - Session control endpoints are named pipes / Unix domain sockets, reachable
   only from the local machine and the same user context.
 
-See [CODE_SIGNING.md](CODE_SIGNING.md) for the code signing and privacy
-policy.
+## Build integrity
+
+Release builds run from version tags on clean GitHub-hosted runners. The GUI
+installer endpoint publishes per-platform app packages with SHA-256 files,
+and the install scripts verify the selected package before installing the
+downloaded files.
+
+## Privacy
+
+puppetty contains no telemetry, analytics, or auto-update phone-home. Session
+data stays on the local machine under `~/.puppetty/`, and secrets stored with
+`puppetty cred` live in the operating system keyring. Network access happens
+only through tools you explicitly configure, such as a decider command.
