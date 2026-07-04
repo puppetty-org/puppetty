@@ -163,7 +163,7 @@ const SUBCOMMANDS: &[&str] = &[
 
 #[tokio::main]
 async fn main() {
-    // `puppetty claude` means `puppetty run claude` — same implicit-run
+    // `puppetty python` means `puppetty run python` — same implicit-run
     // convention as the Node CLI.
     let mut argv: Vec<String> = std::env::args().collect();
     if let Some(first) = argv.get(1) {
@@ -924,6 +924,7 @@ async fn cmd_config(action: &str) -> i32 {
             let out = json!({
                 "rules": rules,
                 "dangerWords": p.danger_words,
+                "onDanger": p.on_danger,
                 "onUnanswered": { "afterSec": p.on_unanswered.after_sec, "do": p.on_unanswered.action },
                 "sources": { "user": p.sources.0, "project": p.sources.1 },
                 "userConfigPath": user_config_path().to_string_lossy(),

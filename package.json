@@ -1,7 +1,7 @@
 {
   "name": "puppetty",
   "version": "0.2.0",
-  "description": "Run commands under a pseudo-terminal that auto-answers interactive prompts (or delegates the decision to an AI agent), so scripts never hang waiting for input.",
+  "description": "The terminal as an API: run interactive programs in controllable PTY sessions that AI agents can drive — prompts auto-answered by policy or LLM, secrets from the OS keyring, no more hangs.",
   "type": "module",
   "bin": {
     "puppetty": "bin/puppetty.js"

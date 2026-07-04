@@ -1,6 +1,10 @@
 # puppetty
 
-Controllable virtual terminal sessions for AI agents.
+**The terminal as an API.** Any interactive program becomes callable: type
+into it, read its rendered screen, wait for it to need input — over a JSON
+protocol. AI agents answer the prompts they should, known questions
+auto-answer by policy, secrets come from the OS keyring, and nothing ever
+hangs waiting for input.
 
 ![puppetty auto-answering interactive prompts](https://raw.githubusercontent.com/puppetty-org/puppetty/main/docs/demo.gif)
 
@@ -52,62 +56,64 @@ npm run dev          # launch the desktop app
 
 See [`gui/README.md`](gui/README.md) for the GUI's features and details.
 
-`puppetty claude` runs `claude` (or any command) inside a pseudo-terminal
-(ConPTY) session that **any other process can drive programmatically**: type
-input into it, press keys, and read the rendered screen — like tmux's
-`send-keys` / `capture-pane`, but with a JSON API and Windows-first support.
+`puppetty <command>` runs any program — an installer, a REPL, a dev server,
+a full-screen TUI — inside a pseudo-terminal (ConPTY) session that **any
+other process can drive programmatically**: type input into it, press keys,
+and read the rendered screen — like tmux's `send-keys` / `capture-pane`,
+but with a JSON API and Windows-first support.
 
 ```
-┌──────────────┐  named pipe   ┌──────────────────────────────┐  ConPTY  ┌─────────┐
-│ puppetty send│──────────────►│ session host                 │◄────────►│ claude, │
-│ puppetty read│◄──────────────│  · PTY                       │          │ npm,    │
-│ puppetty keys│  JSON lines   │  · headless xterm.js screen  │          │ python… │
-│ (or any app) │               │  · optional prompt autopilot │          └─────────┘
-└──────────────┘               └──────────────────────────────┘
+┌──────────────┐  named pipe   ┌──────────────────────────────┐  ConPTY  ┌──────────┐
+│ puppetty send│──────────────►│ session host                 │◄────────►│ npm,     │
+│ puppetty read│◄──────────────│  · PTY                       │          │ python,  │
+│ puppetty keys│  JSON lines   │  · headless terminal screen  │          │ ssh,     │
+│ (or any app) │               │  · optional prompt autopilot │          │ any TUI… │
+└──────────────┘               └──────────────────────────────┘          └──────────┘
 ```
 
 The child process believes it is attached to a real interactive terminal, so
-TUIs (Claude Code, inquirer menus), `[y/N]` confirmations, and password
+full-screen TUIs, inquirer menus, `[y/N]` confirmations, and password
 prompts all behave exactly as they would for a human.
 
 ## Usage
 
 ```powershell
 # Start a session (attached: you see it live, others can control it)
-puppetty claude
+puppetty python
 
 # Or detached (background), like tmux new -d
-puppetty run -d --name c1 -- claude
+puppetty run -d --name py -- python
 
 # From any other terminal / script / agent:
-puppetty send c1 "What is 2+2? Reply with just the number."
-puppetty read c1                  # prints the rendered screen
-puppetty keys c1 down down enter  # navigate TUI menus
+puppetty send py "6 * 7"
+puppetty read py                  # prints the rendered screen -> 42
+puppetty keys py down down enter  # navigate TUI menus
 puppetty list
-puppetty kill c1
+puppetty kill py
 ```
 
 Companion sessions share another session's working directory (side commands
-like `git status` next to a running agent):
+like `git status` next to a long-running build or dev server):
 
 ```powershell
-puppetty run -d --name shell --cwd-of claude -- pwsh
+puppetty run -d --name dev -- npm run dev
+puppetty run -d --name shell --cwd-of dev -- pwsh
 ```
 
 No sleep-and-poll needed — `wait` blocks until the first condition is met
 (child exit and `--timeout` always apply; timeout exits 1):
 
 ```powershell
-puppetty wait c1 --for "❯" --timeout 30         # screen matches a regex
-puppetty wait c1 --for "Done" --since-start     # ...ignoring text already on
+puppetty wait dev --for "ready in"              # screen matches a regex
+puppetty wait dev --for "Done" --since-start    # ...ignoring text already on
                                                 #    screen when the wait began
-puppetty wait c1 --gone "esc to interrupt"      # pattern DISAPPEARED — the
-                                                #    done-detector for agent TUIs
-puppetty wait c1 --stable 2000                  # rendered screen unchanged 2s
+puppetty wait dev --gone "Compiling"            # pattern DISAPPEARED — the
+                                                #    done-detector for busy TUIs
+puppetty wait dev --stable 2000                 # rendered screen unchanged 2s
                                                 #    (animation-proof idle)
-puppetty wait c1 --prompt                       # settled on a prompt-looking
+puppetty wait dev --prompt                      # settled on a prompt-looking
                                                 #    line: it needs input
-puppetty wait c1 --idle 3000                    # no output bytes for 3s
+puppetty wait dev --idle 3000                   # no output bytes for 3s
 ```
 
 `wait` always prints the resulting screen; the end reason (`pattern`, `gone`,
@@ -152,8 +158,33 @@ With `--auto`, puppetty answers prompts according to a layered policy;
 
 ```powershell
 puppetty --auto -- npm create vite@latest my-app
-puppetty --decider "claude -p" -- python setup.py
+puppetty --decider "<your LLM CLI>" -- python setup.py
 ```
+
+The classic failure this prevents: an AI is following install instructions,
+the installer asks a question, and everything sits there until a timeout.
+Under puppetty the prompt is detected, answered by a rule or referred to an
+LLM with the screen as context — and the run keeps moving.
+
+### Choosing your LLM CLI (or none)
+
+The decider is any command that reads the screen from stdin and prints one
+line back — `claude -p`, `codex exec`, a shell script, whatever you have:
+
+- **Per run**: `--decider "codex exec"`
+- **Set once**: a `default` decider in `~/.puppetty/config.json`:
+
+  ```jsonc
+  { "deciders": { "default": { "command": "claude -p" } } }
+  ```
+
+- **Per rule**: a rule with `"action": "decider", "decider": "<name>"` routes
+  just that prompt to a named decider.
+
+**No AI CLI installed?** Everything still works: rules answer the known
+prompts, `wait --prompt` (or the MCP tools) tells the driving process a
+session needs input so *it* can decide, and `onUnanswered` cancels safely
+instead of hanging.
 
 Policy is JSONC, layered: built-in defaults ← `~/.puppetty/config.json`
 (user) ← `<cwd>/.puppetty/config.json` (project). First matching rule wins;
@@ -168,6 +199,8 @@ tombstones a default).
     { "name": "project-name", "match": "Project name:\\s*$", "action": "send", "text": "my-app" },
   ],
   "dangerWords": ["\\boverwrite\\b", "git push"],   // escalate matches to confirm
+  "onDanger": "human",   // or "decider": let your LLM judge danger-word
+                         // prompts too (it gets an explicit caution preamble)
   "onUnanswered": { "afterSec": 30, "do": "cancel" },
   "logging": { "enabled": true, "retentionDays": 30, "maxTotalMB": 200 },
 }
@@ -179,6 +212,9 @@ Severity classes decide who may answer:
 - **confirm** — needs a human; any prompt containing a danger word
   (delete/overwrite/force/`git push`/…) is escalated here even if an auto
   rule matches. Headless: falls through to `onUnanswered` (Ctrl+C → kill).
+  Prefer LLM judgment for these? Set `"onDanger": "decider"` — danger-word
+  escalations (never explicit confirm/forbid rules) go to your decider with
+  a caution preamble instead; a regex can't weigh ambiguity, an LLM can.
 - **forbid** — never automated. Password/passphrase/token prompts live here;
   they are answered by a human or not at all.
 - **credential** — a rule with `"action": "credential", "ref": "name"` is
@@ -212,7 +248,8 @@ puppetty config validate   # validate a policy JSON read from stdin
 ```
 
 The decider receives the rendered screen tail on stdin and replies with one
-line: `SEND:<text>` / `ENTER` / `CANCEL` / `WAIT`. `claude -p` works as-is.
+line: `SEND:<text>` / `ENTER` / `CANCEL` / `WAIT` — any LLM CLI that reads
+stdin and prints a reply works as-is.
 A loop guard aborts after answering the same prompt 3 times; exit code 130
 means "gave up on a prompt" as opposed to "completed".
 
@@ -271,7 +308,7 @@ puppetty --auto --prompt-timeout 3 -- engine-rs\target\release\examples\password
 
 ## Status / roadmap
 
-Working proof of concept (tested driving a live Claude Code TUI on Windows).
+Working proof of concept (tested driving live full-screen TUIs on Windows).
 Before production:
 
 - `attach` command (reconnect a real terminal to a detached session, tmux-style)

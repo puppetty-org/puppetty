@@ -172,14 +172,18 @@ pub fn attach_autopilot(session: Arc<Session>, opts: PilotOptions) -> Autopilot 
                     // only — it never sees secret values.
                     if m.rule.ai == Some(true) && cred_ref.is_none() {
                         let refs = list_refs();
-                        let decider_cmd = opts.decider.clone().or_else(|| {
-                            m.rule.decider.as_ref().and_then(|d| {
-                                opts.policy
-                                    .deciders
-                                    .get(d)
-                                    .and_then(|dd| dd.command.clone())
+                        let decider_cmd = opts
+                            .decider
+                            .clone()
+                            .or_else(|| {
+                                m.rule.decider.as_ref().and_then(|d| {
+                                    opts.policy
+                                        .deciders
+                                        .get(d)
+                                        .and_then(|dd| dd.command.clone())
+                                })
                             })
-                        });
+                            .or_else(|| default_decider(&opts.policy));
                         let Some(decider_cmd) = decider_cmd.filter(|_| !refs.is_empty()) else {
                             session.log_event(
                                 "prompt-detected",
@@ -248,19 +252,30 @@ pub fn attach_autopilot(session: Arc<Session>, opts: PilotOptions) -> Autopilot 
                 }
 
                 if m.class == "forbid" || m.class == "confirm" {
-                    handled_state = Some(state_key);
-                    let rule_name = m.rule.name.clone().unwrap_or_default();
-                    session.log_event(
-                        "prompt-detected",
-                        json!({
-                        "line": clip(&line), "class": m.class, "rule": rule_name }),
-                    );
-                    mark_unanswered!(if m.class == "forbid" {
-                        format!("rule:{rule_name} (class forbid — never automated)")
-                    } else {
-                        format!("rule:{rule_name} (class confirm — needs a human; no GUI attached)")
-                    });
-                    continue;
+                    // onDanger "decider": a danger-word escalation (not an
+                    // explicit confirm rule) may fall through to the LLM,
+                    // which gets an extra caution preamble.
+                    let danger_to_decider = m.class == "confirm"
+                        && m.danger
+                        && opts.policy.on_danger == "decider"
+                        && (opts.decider.is_some() || default_decider(&opts.policy).is_some());
+                    if !danger_to_decider {
+                        handled_state = Some(state_key);
+                        let rule_name = m.rule.name.clone().unwrap_or_default();
+                        session.log_event(
+                            "prompt-detected",
+                            json!({
+                            "line": clip(&line), "class": m.class, "rule": rule_name }),
+                        );
+                        mark_unanswered!(if m.class == "forbid" {
+                            format!("rule:{rule_name} (class forbid — never automated)")
+                        } else {
+                            format!(
+                                "rule:{rule_name} (class confirm — needs a human; no GUI attached)"
+                            )
+                        });
+                        continue;
+                    }
                 }
             }
 
@@ -269,20 +284,47 @@ pub fn attach_autopilot(session: Arc<Session>, opts: PilotOptions) -> Autopilot 
                 continue;
             }
 
-            let decider_cmd = opts.decider.clone().or_else(|| {
-                m.as_ref()
-                    .filter(|m| m.rule.action == "decider")
-                    .and_then(|m| m.rule.decider.as_ref())
-                    .and_then(|d| opts.policy.deciders.get(d))
-                    .and_then(|dd| dd.command.clone())
-            });
+            let danger_visible = opts
+                .policy
+                .danger_re
+                .as_ref()
+                .map(|re| re.is_match(&screen_text).unwrap_or(false))
+                .unwrap_or(false);
+
+            let decider_cmd = opts
+                .decider
+                .clone()
+                .or_else(|| {
+                    m.as_ref()
+                        .filter(|m| m.rule.action == "decider")
+                        .and_then(|m| m.rule.decider.as_ref())
+                        .and_then(|d| opts.policy.deciders.get(d))
+                        .and_then(|dd| dd.command.clone())
+                })
+                .or_else(|| default_decider(&opts.policy));
 
             if let Some(decider_cmd) = decider_cmd {
+                // onDanger "human": danger words visible on an unmatched
+                // prompt also mean a human decides, not the LLM.
+                if danger_visible && opts.policy.on_danger == "human" {
+                    handled_state = Some(state_key);
+                    session.log_event(
+                        "prompt-detected",
+                        json!({ "line": clip(&line), "class": "confirm", "danger": true }),
+                    );
+                    mark_unanswered!(
+                        "danger words visible — needs a human (onDanger: human)".to_string()
+                    );
+                    continue;
+                }
                 handled_state = Some(state_key);
                 log(&format!("asking decider about: {:?}", clip_n(&line, 80)));
-                session.log_event("decider-asked", json!({ "line": clip(&line) }));
+                session.log_event(
+                    "decider-asked",
+                    json!({ "line": clip(&line), "danger": danger_visible }),
+                );
                 let tail = tail_chars(&screen_text, 2_000);
-                let verdict = ask_decider(&decider_cmd, &tail).await;
+                let verdict = ask_decider(&decider_cmd, &tail, danger_visible).await;
                 if session.is_exited() {
                     continue;
                 }
@@ -307,6 +349,17 @@ pub fn attach_autopilot(session: Arc<Session>, opts: PilotOptions) -> Autopilot 
     });
 
     Autopilot { task, cancelled }
+}
+
+/// Config-level default LLM CLI: `deciders.default.command` in
+/// ~/.puppetty/config.json, used when no --decider flag is given. Users pick
+/// their own CLI (claude, codex, anything stdin→one-line); none configured
+/// means rules-only automation, which is fully supported.
+fn default_decider(policy: &Policy) -> Option<String> {
+    policy
+        .deciders
+        .get("default")
+        .and_then(|dd| dd.command.clone())
 }
 
 fn clip(s: &str) -> String {
