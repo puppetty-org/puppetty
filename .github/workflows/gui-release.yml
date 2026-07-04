@@ -45,15 +45,13 @@ jobs:
           draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           body: |
-            Windows installer for the puppetty desktop GUI.
+            Windows installer for the puppetty desktop GUI — all-in-one:
+            the Rust engine is bundled inside the app. No Node.js, no npm
+            install, no other prerequisites.
 
-            The GUI drives the puppetty engine, which must be installed
-            separately (requires Node.js 22+):
-
-            ```
-            npm install -g puppetty
-            ```
-
+            The CLI/agent toolchain (`puppetty` command, MCP server) can
+            additionally be installed via `npm install -g puppetty`, but
+            the GUI does not require it.
       - name: Upload artifact (manual run)
         if: "!startsWith(github.ref, 'refs/tags/gui-v')"
         uses: actions/upload-artifact@v7
