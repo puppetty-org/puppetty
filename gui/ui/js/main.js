@@ -26,7 +26,7 @@ const DEFAULT_PREFS = {
   fontFamily: 'Cascadia Mono, Consolas, monospace',
   fontSize: 14,
   opacity: 1,           // window/background opacity (0.5–1.0)
-  onLastTab: 'quit',    // when the last tab closes: 'quit' the app | 'newShell'
+  onLastTab: 'newShell', // when the last tab closes: 'quit' the app | 'newShell'
   aiCommand: 'claude -p', // CLI the rule editor pipes a prompt to for regex suggestions
   autoAnswer: false,    // default for the New-command "auto-answer prompts" toggle
 };
@@ -400,7 +400,10 @@ async function startShell() {
     const auto = prefs.autoAnswer;
     const created = await invoke('start_session', { command: ['pwsh'], name: null, cwdOf: null, auto });
     await openSession(created, ['pwsh'], auto);
-  } catch { /* leave empty if the shell can't start */ }
+  } catch (err) {
+    console.error('startShell failed:', err);
+    alert(`failed to start a shell: ${err?.message ?? err}`);
+  }
 }
 
 // One event channel for all sessions; route by name.

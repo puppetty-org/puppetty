@@ -245,7 +245,7 @@ label.inline { display: flex; align-items: center; gap: 7px; font-size: 12px; }
   font-size: 16px; line-height: 1; cursor: pointer;
   width: 28px; height: 26px; border-radius: 6px;
   display: grid; place-items: center; margin-left: 2px;
-  align-self: flex-end; flex: 0 0 auto;
+  align-self: center; flex: 0 0 auto;
 }
 .tab-add:hover { background: var(--bg); color: var(--fg); }
 body.tabs-left .tab-add { align-self: auto; }
