@@ -1,6 +1,19 @@
 # puppetty — Design Document
 
-Status: M1 done · M2 complete · MCP mode done · M3 complete · Last updated: 2026-07-02
+Status: M1–M3 done · MCP mode done · M4 (npm) done · M5 (Rust host) done · Last updated: 2026-07-05
+
+> 2026-07-05: the Rust port (§4.3 / M5) is complete and is now the only
+> engine. `engine-rs` (portable-pty + alacritty_terminal as the screen
+> model) speaks the same JSON-lines protocol; the Node engine is gone and
+> `bin/puppetty.js` is a thin launcher shipped by npm alongside per-platform
+> `@puppetty/*` binary packages (M4). Credentials moved to the Rust
+> `keyring` crate (Credential Manager / Keychain / Linux kernel keyring).
+> Distribution deviates from D7/§4.3: no MSI — the GUI installs from a
+> GitHub Pages script endpoint (`install.ps1` / `install.sh`) that verifies
+> SHA-256 and bundles the engine sidecar, on Windows and Linux. Linux is
+> now CI-tested (engine + GUI); macOS GUI packages are deferred until a
+> proper `.app` bundle flow exists (the CLI does ship macOS binaries via
+> npm, untested in CI).
 
 > 2026-07-02 (M3): credential store, policy editor, and notifications landed.
 > Credentials use the OS keyring via @napi-rs/keyring (prebuilt, no toolchain);
@@ -70,17 +83,20 @@ because they shaped everything:
 
 ## 2. What exists today (validated proof of concept)
 
-Node.js CLI in this repo. All behaviors below are tested on Windows 11,
-including against a live Claude Code TUI.
+Rust engine (`engine-rs`) plus a thin npm launcher in this repo (originally
+a Node.js PoC — see the 2026-07-05 note). All behaviors below are tested on
+Windows 11, including against a live Claude Code TUI; Linux is CI-tested.
 
 - **Sessions**: `puppetty [run] [-d] [--name x] -- <cmd>` hosts any command
-  under ConPTY (`@lydell/node-pty`, prebuilt — no build toolchain needed).
+  under a PTY (`portable-pty`: ConPTY on Windows, openpty elsewhere).
   The child believes it's on a real terminal; TUIs render correctly.
-- **Screen model**: headless xterm.js mirrors the PTY, so `read` returns the
-  rendered screen (what a human would see), not escape-sequence soup.
+- **Screen model**: an `alacritty_terminal` grid mirrors the PTY, so `read`
+  returns the rendered screen (what a human would see), not
+  escape-sequence soup.
 - **Control API**: each session serves JSON-lines over a named pipe
   (`\\.\pipe\puppetty-<name>`; Unix socket elsewhere). Ops:
-  `send`, `keys`, `read`, `wait`, `resize`, `info`, `kill`.
+  `send`, `keys`, `read`, `wait`, `resize`, `info`, `kill`, `attach`,
+  `set-auto`.
 - **`wait` op**: blocks until screen matches a regex / output idles / child
   exits / timeout. Removed all sleep-and-poll from callers. (Measured: TUI
   ready in 751ms, claude's answer detected 4.1s after send — zero sleeps.)
@@ -169,12 +185,15 @@ Prerequisite engine work:
   the launcher's cwd) — enables companion tabs and
   `puppetty run --cwd-of <session> -- pwsh` from the CLI.
 
-### 4.3 Phase 2 — Rust port of the session host
+### 4.3 Phase 2 — Rust port of the session host ✅ (done, shape changed)
 
-Port PTY host into the Tauri backend (`portable-pty` + `vt100`/`wezterm-term`
-for the screen model), keeping the pipe protocol byte-identical so CLI and
-agents are untouched. Unlocks standalone MSI (no Node), tray-resident
-background host. Only worth it when distribution demands it.
+Shipped, with two deviations from this plan: the host became the standalone
+`engine-rs` binary (not code inside the Tauri backend — the GUI spawns it
+as a sidecar, keeping the single-engine property of D6), and the screen
+model is `alacritty_terminal` rather than `vt100`/`wezterm-term`. The pipe
+protocol stayed compatible so CLI and agents were untouched. Distribution
+landed as per-platform npm binary packages plus a Pages script installer
+for the GUI — no MSI needed.
 
 ### 4.4 Full-rendering TUIs — Claude Code v2 findings (measured 2026-07-02)
 
@@ -223,8 +242,12 @@ Priority: `--gone` and `--since-start` are small additions to the existing
   Verified with a real MCP client.
 - **`attach` CLI command** (reconnect a human terminal, tmux-style; Ctrl+]).
 
+- **Linux support**: engine + GUI build and test in CI; the script
+  installer publishes a Linux package.
+
 Still planned:
-- macOS/Linux support (code paths exist; untested).
+- macOS: CLI binaries ship via npm but are untested in CI; no GUI packages
+  (needs a proper `.app` bundle flow).
 
 ## 5. Resolved questions (2026-07-02 review)
 
@@ -277,7 +300,8 @@ conflicts hurt; don't pre-build it.
 
 **Q6 — Event log → asciinema `.cast` for replay + `.jsonl` for decisions.**
 Two files per session under `~/.puppetty/logs/`:
-- `<name>-<ts>.cast` — asciinema v2 format (timestamped output + input).
+- `<name>-<ts>.cast` — asciinema v2 format (timestamped output; input is
+  deliberately not recorded — see the M2 note on secret-safety).
   Industry-standard replay: existing players, `asciinema play`, embeddable.
 - `<name>-<ts>.jsonl` — structured control events (send/keys/wait/prompt/
   answer/kill) with source attribution and redaction, cross-referenced to
@@ -311,5 +335,5 @@ capable than regex rules against a repainting UI.
 | M2: GUI alpha ✅ | Tauri shell, `attach` op, xterm tabs, companion tabs, decision feed, ask-human dialog | gpg pinentry answered by human via GUI while an agent session continues in another tab |
 | (bonus) MCP mode ✅ | `puppetty mcp` stdio server, 7 session tools | verified with a real MCP client end-to-end |
 | M3: policy editor + notifications ✅ | settings UI, toasts, credential store (keyring) | config fully editable in GUI; a stored credential answers a prompt without any agent seeing it |
-| M4: npm v0.1 (deferred per Q8) | rename to `puppetty`, README, publish | `npm i -g` works on a clean machine after owner dogfooding |
-| M5: Rust host (optional) | portable-pty port, protocol-compatible | standalone MSI, no Node |
+| M4: npm v0.1 ✅ | rename to `puppetty`, README, publish | `npm i -g` works on a clean machine after owner dogfooding |
+| M5: Rust host ✅ | portable-pty port, protocol-compatible | standalone install, no Node runtime — shipped as `engine-rs` + per-platform npm packages + the GUI script installer (MSI not needed) |
