@@ -24,7 +24,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        include:
+          - os: windows-latest
+            build: --no-bundle
+          - os: ubuntu-latest
+            build: --no-bundle
+          # Exercise the release's .app bundling path on PRs, not just
+          # compilation — macOS breakage should surface before tag time.
+          - os: macos-latest
+            build: --bundles app
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -66,4 +74,4 @@ jobs:
 
       - name: Build app
         working-directory: gui
-        run: npx tauri build --debug --no-bundle
+        run: npx tauri build --debug ${{ matrix.build }}
