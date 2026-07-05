@@ -1373,7 +1373,7 @@ dependencies = [
 
 [[package]]
 name = "puppetty-engine"
-version = "0.2.0-beta.2"
+version = "0.2.0-beta.3"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
@@ -1383,6 +1383,7 @@ dependencies = [
  "dirs",
  "fancy-regex",
  "keyring",
+ "libc",
  "portable-pty",
  "regex",
  "serde",

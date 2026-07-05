@@ -343,9 +343,35 @@ impl Session {
         self.screen.lock().unwrap().resize(cols, rows);
     }
 
-    pub fn kill(&self) {
-        if !self.exited.load(Ordering::SeqCst) {
+    pub fn kill(self: &Arc<Self>) {
+        if self.exited.load(Ordering::SeqCst) {
+            return;
+        }
+        #[cfg(windows)]
+        {
+            // TerminateProcess via the cloned killer — a guaranteed hard kill.
             let _ = self.killer.lock().unwrap().kill();
+        }
+        #[cfg(unix)]
+        {
+            // portable-pty's cloned killer sends a single SIGHUP on unix;
+            // programs that trap or ignore HUP survive while kill reports
+            // success. Signal the child's whole process group instead (the
+            // child is a session leader via setsid, so pgid == pid) and
+            // escalate to SIGKILL after a grace period if it is still alive.
+            let pid = self.pid as i32;
+            if pid <= 0 {
+                let _ = self.killer.lock().unwrap().kill();
+                return;
+            }
+            unsafe { libc::kill(-pid, libc::SIGHUP) };
+            let s = self.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(3_000)).await;
+                if !s.exited.load(Ordering::SeqCst) {
+                    unsafe { libc::kill(-(s.pid as i32), libc::SIGKILL) };
+                }
+            });
         }
     }
 

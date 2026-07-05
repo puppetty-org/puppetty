@@ -412,7 +412,24 @@ async fn host_main(opts: RunOpts, attached: bool) -> i32 {
     };
     let mut shutdown = session.shutdown.subscribe();
 
+    // Unix: bind the control socket before anything reports the session as
+    // started — a bind failure must be fatal, not a reachable-by-no-one
+    // session (the exit pump cleans up the registry entry after the kill).
+    #[cfg(not(windows))]
+    let srv_listener = match server::bind(&session.name) {
+        Ok(l) => l,
+        Err(e) => {
+            session.kill();
+            return fail(&format!("cannot create the session control endpoint: {e}"));
+        }
+    };
+
     let srv = session.clone();
+    #[cfg(not(windows))]
+    tokio::spawn(async move {
+        let _ = server::serve(srv_listener, srv).await;
+    });
+    #[cfg(windows)]
     tokio::spawn(async move {
         let _ = server::serve(srv).await;
     });
@@ -561,13 +578,13 @@ async fn cmd_attach(name: &str) -> i32 {
     #[cfg(windows)]
     let stream = {
         use tokio::net::windows::named_pipe::ClientOptions;
-        match ClientOptions::new().open(crate::protocol::pipe_path(name)) {
+        match ClientOptions::new().open(crate::protocol::endpoint_for(name)) {
             Ok(s) => s,
             Err(e) => return fail(&format!("cannot reach session \"{name}\" ({e})")),
         }
     };
     #[cfg(not(windows))]
-    let stream = match tokio::net::UnixStream::connect(crate::protocol::pipe_path(name)).await {
+    let stream = match tokio::net::UnixStream::connect(crate::protocol::endpoint_for(name)).await {
         Ok(s) => s,
         Err(e) => return fail(&format!("cannot reach session \"{name}\" ({e})")),
     };

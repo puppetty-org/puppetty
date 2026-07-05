@@ -44,10 +44,47 @@ pub fn pipe_path(name: &str) -> String {
 
 #[cfg(not(windows))]
 pub fn pipe_path(name: &str) -> String {
-    std::env::temp_dir()
-        .join(format!("puppetty-{name}.sock"))
-        .to_string_lossy()
-        .into_owned()
+    // ~/.puppetty/run rather than the temp dir: macOS TMPDIR is ~50 chars
+    // against the 104-byte sun_path cap, and it differs between login
+    // contexts (SSH vs GUI), which made sessions started in one invisible
+    // from the other. Long names are shortened with a hash to stay under
+    // the cap. Mirrored in gui/src-tauri/src/main.rs.
+    let dir = dirs::home_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join(".puppetty")
+        .join("run");
+    let _ = std::fs::create_dir_all(&dir);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+    }
+    let file = if name.len() <= 40 {
+        format!("{name}.sock")
+    } else {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        name.hash(&mut h);
+        let prefix: String = name.chars().take(24).collect();
+        format!("{prefix}-{:016x}.sock", h.finish())
+    };
+    dir.join(file).to_string_lossy().into_owned()
+}
+
+/// The control endpoint for a session: prefer the path the host recorded in
+/// the registry (it survives engine-version and environment differences),
+/// falling back to the computed path.
+pub fn endpoint_for(name: &str) -> String {
+    if let Ok(text) = std::fs::read_to_string(meta_path(name)) {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+            if let Some(p) = v["pipe"].as_str() {
+                if !p.is_empty() {
+                    return p.to_string();
+                }
+            }
+        }
+    }
+    pipe_path(name)
 }
 
 /// Heuristic from the Node engine's policy.js: does this line look like it is

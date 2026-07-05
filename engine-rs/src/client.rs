@@ -3,7 +3,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-use crate::protocol::{meta_path, pipe_path, sessions_dir};
+use crate::protocol::{endpoint_for, meta_path, sessions_dir};
 
 /// One-shot request against a session's control endpoint.
 pub async fn request(name: &str, req: &Value, timeout_ms: u64) -> Result<Value, String> {
@@ -15,7 +15,7 @@ pub async fn request(name: &str, req: &Value, timeout_ms: u64) -> Result<Value, 
             use tokio::net::windows::named_pipe::ClientOptions;
             let mut attempt = 0;
             loop {
-                match ClientOptions::new().open(pipe_path(name)) {
+                match ClientOptions::new().open(endpoint_for(name)) {
                     Ok(c) => break c,
                     Err(e) if matches!(e.raw_os_error(), Some(2) | Some(231)) && attempt < 30 => {
                         attempt += 1;
@@ -26,7 +26,7 @@ pub async fn request(name: &str, req: &Value, timeout_ms: u64) -> Result<Value, 
             }
         };
         #[cfg(not(windows))]
-        let stream = tokio::net::UnixStream::connect(pipe_path(name))
+        let stream = tokio::net::UnixStream::connect(endpoint_for(name))
             .await
             .map_err(|e| format!("cannot reach session \"{name}\": {e}"))?;
 
