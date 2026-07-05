@@ -11,19 +11,39 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, WriteHalf};
+#[cfg(windows)]
 use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeClient};
 use tokio::sync::Mutex;
 
-type WriterMap = Arc<Mutex<HashMap<String, WriteHalf<NamedPipeClient>>>>;
+#[cfg(windows)]
+type SessionStream = NamedPipeClient;
+#[cfg(not(windows))]
+type SessionStream = tokio::net::UnixStream;
+
+type WriterMap = Arc<Mutex<HashMap<String, WriteHalf<SessionStream>>>>;
 
 struct Writers(WriterMap);
 
+// Mirrors engine-rs/src/protocol.rs: named pipe on Windows, Unix domain
+// socket in the temp dir elsewhere.
+#[cfg(windows)]
 fn pipe_path(name: &str) -> String {
     format!(r"\\.\pipe\puppetty-{}", name)
 }
 
+#[cfg(not(windows))]
+fn pipe_path(name: &str) -> String {
+    std::env::temp_dir()
+        .join(format!("puppetty-{name}.sock"))
+        .to_string_lossy()
+        .into_owned()
+}
+
 fn puppetty_home() -> PathBuf {
+    #[cfg(windows)]
     let home = std::env::var("USERPROFILE").unwrap_or_default();
+    #[cfg(not(windows))]
+    let home = std::env::var("HOME").unwrap_or_default();
     PathBuf::from(home).join(".puppetty")
 }
 
@@ -46,10 +66,14 @@ fn read_gui_config() -> Value {
 static FIRST_RUN: OnceLock<bool> = OnceLock::new();
 
 fn window_state_path() -> PathBuf {
-    let appdata = std::env::var("APPDATA").unwrap_or_default();
-    PathBuf::from(appdata)
-        .join("dev.hinase.puppetty")
-        .join(".window-state.json")
+    #[cfg(windows)]
+    let base = PathBuf::from(std::env::var("APPDATA").unwrap_or_default());
+    #[cfg(not(windows))]
+    let base = match std::env::var("XDG_CONFIG_HOME") {
+        Ok(x) if !x.is_empty() => PathBuf::from(x),
+        _ => PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".config"),
+    };
+    base.join("dev.hinase.puppetty").join(".window-state.json")
 }
 
 #[tauri::command]
@@ -155,11 +179,29 @@ async fn run_cli(args: &[&str], stdin_data: Option<String>) -> Result<String, St
 
 // Named-pipe connects race the server re-creating its next instance (and a
 // fresh session may not be listening yet): retry NOT_FOUND/PIPE_BUSY briefly.
-async fn open_pipe(name: &str) -> Result<NamedPipeClient, String> {
+#[cfg(windows)]
+async fn open_pipe(name: &str) -> Result<SessionStream, String> {
     for _ in 0..30 {
         match ClientOptions::new().open(pipe_path(name)) {
             Ok(c) => return Ok(c),
             Err(e) if matches!(e.raw_os_error(), Some(2) | Some(231)) => {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            Err(e) => return Err(format!("cannot reach session \"{name}\": {e}")),
+        }
+    }
+    Err(format!("cannot reach session \"{name}\": not responding"))
+}
+
+// Unix equivalent: the socket file may not exist yet (fresh session) or the
+// listener may not be accepting yet: retry NotFound/ConnectionRefused briefly.
+#[cfg(not(windows))]
+async fn open_pipe(name: &str) -> Result<SessionStream, String> {
+    use std::io::ErrorKind;
+    for _ in 0..30 {
+        match tokio::net::UnixStream::connect(pipe_path(name)).await {
+            Ok(c) => return Ok(c),
+            Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::ConnectionRefused) => {
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
             Err(e) => return Err(format!("cannot reach session \"{name}\": {e}")),
@@ -465,8 +507,18 @@ async fn ai_complete(command: String, input: String) -> Result<String, String> {
     if command.is_empty() {
         return Err("no AI command configured".into());
     }
-    let mut cmd = tokio::process::Command::new("cmd");
-    cmd.arg("/C").arg(&command);
+    #[cfg(windows)]
+    let mut cmd = {
+        let mut c = tokio::process::Command::new("cmd");
+        c.arg("/C").arg(&command);
+        c
+    };
+    #[cfg(not(windows))]
+    let mut cmd = {
+        let mut c = tokio::process::Command::new("sh");
+        c.arg("-c").arg(&command);
+        c
+    };
     cmd.stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());

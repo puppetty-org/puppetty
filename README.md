@@ -33,12 +33,30 @@ The desktop GUI shows terminal tabs attached to live sessions, a decision
 feed of who typed what and which rules fired, and an ask-human dialog for
 secret/danger prompts. Two ways to get it:
 
-#### Install from the Releases page
+#### Install the desktop app
 
-1. Download and run the Windows installer (`puppetty-gui_..._x64-setup.exe`)
-   from the [Releases page](https://github.com/puppetty-org/puppetty/releases)
-2. Launch **puppetty-gui** from the Start menu — the engine is bundled
-   inside the app (nothing else to install)
+Windows:
+
+```powershell
+iwr -useb https://puppetty-org.github.io/puppetty/gui/install.ps1 | iex
+```
+
+Linux:
+
+```sh
+curl -fsSL https://puppetty-org.github.io/puppetty/gui/install.sh | sh
+```
+
+The script downloads the latest package for your platform, verifies its
+SHA-256 checksum, installs the GUI with the bundled engine, and creates the
+platform shortcut/link. On Windows it also installs the WebView2 runtime if
+it is missing. On Linux the app needs the WebKitGTK 4.1 runtime
+(`libwebkit2gtk-4.1-0` on Debian/Ubuntu); the installer warns when it is
+absent. macOS packages are not published yet.
+
+To uninstall the desktop app, use Windows **Settings ▸ Apps ▸ Installed
+apps**, select **puppetty-gui**, and choose **Uninstall**. On Linux, run
+`~/.local/share/puppetty-gui/uninstall.sh`.
 
 #### Run from source
 
@@ -310,12 +328,10 @@ puppetty --decider engine-rs\target\release\examples\decider_echo.exe -- engine-
 puppetty --auto --prompt-timeout 3 -- engine-rs\target\release\examples\password_demo.exe
 ```
 
-## Code signing & security
+## Security
 
-See [CODE_SIGNING.md](CODE_SIGNING.md) for the code signing policy, build
-integrity, and privacy policy (short version: no telemetry, nothing leaves
-your machine unless you configure it to), and [SECURITY.md](SECURITY.md)
-for vulnerability reporting and the security model.
+See [SECURITY.md](SECURITY.md) for vulnerability reporting, the security
+model, build integrity, and privacy notes.
 
 ## Status / roadmap
 

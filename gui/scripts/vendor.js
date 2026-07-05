@@ -19,18 +19,21 @@ for (const [src, dst] of files) {
 }
 
 // Build the Rust engine and place it as the Tauri sidecar (externalBin needs
-// a target-triple suffixed file). Skip with PUPPETTY_SKIP_ENGINE=1.
+// a target-triple suffixed file). Skip with PUPPETTY_SKIP_ENGINE=1; CI uses
+// PUPPETTY_ENGINE_PROFILE=debug for a faster compile-only check.
 if (!process.env.PUPPETTY_SKIP_ENGINE) {
   const { execSync } = await import('node:child_process');
   const repo = path.dirname(root);
-  execSync('cargo build --release', { cwd: path.join(repo, 'engine-rs'), stdio: 'inherit' });
+  const profile = process.env.PUPPETTY_ENGINE_PROFILE === 'debug' ? 'debug' : 'release';
+  const flag = profile === 'release' ? ' --release' : '';
+  execSync(`cargo build${flag}`, { cwd: path.join(repo, 'engine-rs'), stdio: 'inherit' });
   const triple = execSync('rustc -vV').toString().match(/host: (\S+)/)[1];
   const ext = process.platform === 'win32' ? '.exe' : '';
   const binDir = path.join(root, 'src-tauri', 'binaries');
   fs.mkdirSync(binDir, { recursive: true });
   fs.copyFileSync(
-    path.join(repo, 'engine-rs', 'target', 'release', `puppetty-engine${ext}`),
+    path.join(repo, 'engine-rs', 'target', profile, `puppetty-engine${ext}`),
     path.join(binDir, `puppetty-engine-${triple}${ext}`)
   );
-  console.log(`sidecar: puppetty-engine-${triple}${ext}`);
+  console.log(`sidecar: puppetty-engine-${triple}${ext} (${profile})`);
 }

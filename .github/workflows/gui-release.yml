@@ -1,30 +1,55 @@
-name: GUI release
+name: GUI installer
 
-# Builds the Tauri desktop app and publishes the Windows installer.
-# Trigger: push a tag like `gui-v0.1.0` (publishes a GitHub Release), or run
-# manually from the Actions tab (uploads the installer as a build artifact).
+# Builds the Tauri desktop app and publishes a static script installer endpoint.
+# Trigger: push a tag like `gui-v0.1.0` (deploys GitHub Pages), or run
+# manually from the Actions tab (uploads app packages as build artifacts).
 on:
   push:
     tags: ["gui-v*"]
   workflow_dispatch:
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            pkg: windows-x64
+            exe: .exe
+          - os: ubuntu-latest
+            pkg: linux-x64
+            exe: ""
+    runs-on: ${{ matrix.os }}
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: gui/package-lock.json
 
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: gui/src-tauri
+          cache-on-failure: true
+          workspaces: |
+            engine-rs
+            gui/src-tauri
+
+      - name: Install Linux GUI dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
 
       - name: Install frontend dependencies
         working-directory: gui
@@ -32,42 +57,94 @@ jobs:
           npm ci
           npm run vendor
 
-      - name: Build installer
+      - name: Build app
         working-directory: gui
-        run: npx tauri build
+        run: npx tauri build --no-bundle
 
-      - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/gui-v')
-        uses: softprops/action-gh-release@v3
-        with:
-          files: gui/src-tauri/target/release/bundle/nsis/*.exe
-          generate_release_notes: true
-          draft: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          body: |
-            Windows installer for the puppetty desktop GUI — all-in-one:
-            the Rust engine is bundled inside the app. No Node.js, no npm
-            install, no other prerequisites.
+      - name: Stage app package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path "dist/package" | Out-Null
+          $gui = "gui/src-tauri/target/release/puppetty-gui${{ matrix.exe }}"
+          $engine = "engine-rs/target/release/puppetty-engine${{ matrix.exe }}"
+          Copy-Item $gui "dist/package/puppetty-gui${{ matrix.exe }}"
+          Copy-Item $engine "dist/package/puppetty-engine${{ matrix.exe }}"
+          Compress-Archive `
+            -Path "dist/package/*" `
+            -DestinationPath "dist/puppetty-gui-${{ matrix.pkg }}.zip" `
+            -Force
 
-            The CLI/agent toolchain (`puppetty` command, MCP server) can
-            additionally be installed via `npm install -g puppetty`, but
-            the GUI does not require it.
-
-            ## ⚠️ Windows SmartScreen warning
-
-            The installer is not yet code-signed, so Windows shows a
-            SmartScreen warning on first run. This is expected for new
-            unsigned binaries — click **More info** (詳細情報), then
-            **Run anyway** (実行):
-
-            <img src="https://raw.githubusercontent.com/puppetty-org/puppetty/main/docs/smartscreen-1.png" width="380"> <img src="https://raw.githubusercontent.com/puppetty-org/puppetty/main/docs/smartscreen-2.png" width="380">
-
-            Every release is built from tagged source by GitHub Actions and
-            published immutably — see the
-            [code signing policy](https://github.com/puppetty-org/puppetty/blob/main/CODE_SIGNING.md).
-      - name: Upload artifact (manual run)
-        if: "!startsWith(github.ref, 'refs/tags/gui-v')"
+      - name: Upload app package artifact
         uses: actions/upload-artifact@v7
         with:
-          name: puppetty-gui-windows
-          path: gui/src-tauri/target/release/bundle/nsis/*.exe
+          name: puppetty-gui-${{ matrix.pkg }}
+          path: dist/puppetty-gui-${{ matrix.pkg }}.zip
+
+  deploy-pages:
+    if: startsWith(github.ref, 'refs/tags/gui-v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy-pages.outputs.page_url }}gui/
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+
+      - name: Stage Pages site
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path "site/gui/latest" | Out-Null
+          Copy-Item "gui/scripts/install-gui.ps1" "site/gui/install.ps1"
+          Copy-Item "gui/scripts/install-gui.sh" "site/gui/install.sh"
+
+          $packages = [ordered]@{}
+          foreach ($package in Get-ChildItem "dist" -Recurse -Filter "puppetty-gui-*.zip") {
+            Copy-Item $package.FullName "site/gui/latest/$($package.Name)"
+            $hash = (Get-FileHash "site/gui/latest/$($package.Name)" -Algorithm SHA256).Hash.ToLowerInvariant()
+            Set-Content "site/gui/latest/$($package.Name).sha256" -Value "$hash  $($package.Name)" -Encoding utf8
+
+            $key = $package.BaseName -replace "^puppetty-gui-", ""
+            $packages[$key] = [ordered]@{
+              package = "latest/$($package.Name)"
+              sha256 = $hash
+            }
+          }
+
+          if ($packages.Count -eq 0) {
+            throw "No app packages were produced"
+          }
+
+          $version = "${{ github.ref_name }}" -replace "^gui-v", ""
+          [ordered]@{
+            version = $version
+            tag = "${{ github.ref_name }}"
+            packages = $packages
+            source = "${{ github.sha }}"
+            publishedAt = (Get-Date).ToUniversalTime().ToString("o")
+          } | ConvertTo-Json | Set-Content "site/gui/latest.json" -Encoding utf8
+
+          @"
+          <!doctype html>
+          <title>puppetty-gui installer</title>
+          <pre>iwr -useb https://puppetty-org.github.io/puppetty/gui/install.ps1 | iex</pre>
+          <pre>curl -fsSL https://puppetty-org.github.io/puppetty/gui/install.sh | sh</pre>
+          "@ | Set-Content "site/gui/index.html" -Encoding utf8
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+      - id: deploy-pages
+        uses: actions/deploy-pages@v5
