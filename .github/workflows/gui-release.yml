@@ -155,23 +155,34 @@ jobs:
         with:
           path: dist
 
+      # Prerelease versions (hyphenated) deploy to the beta channel; the
+      # install scripts default to latest, so a beta is never installed
+      # without explicit opt-in (CHANNEL=beta / $env:PUPPETTY_CHANNEL).
       - name: Stage Pages site
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          New-Item -ItemType Directory -Force -Path "site/gui/latest" | Out-Null
+          $siteBase = "https://puppetty-org.github.io/puppetty"
+
+          $version = "${{ github.ref_name }}" -replace "^gui-v", ""
+          $channel = "latest"
+          if ($version -match "-") { $channel = "beta" }
+          $other = if ($channel -eq "latest") { "beta" } else { "latest" }
+          Write-Host "deploying $version to channel '$channel'"
+
+          New-Item -ItemType Directory -Force -Path "site/gui/$channel" | Out-Null
           Copy-Item "gui/scripts/install-gui.ps1" "site/gui/install.ps1"
           Copy-Item "gui/scripts/install-gui.sh" "site/gui/install.sh"
 
           $packages = [ordered]@{}
           foreach ($package in Get-ChildItem "dist" -Recurse -Filter "puppetty-gui-*.zip") {
-            Copy-Item $package.FullName "site/gui/latest/$($package.Name)"
-            $hash = (Get-FileHash "site/gui/latest/$($package.Name)" -Algorithm SHA256).Hash.ToLowerInvariant()
-            Set-Content "site/gui/latest/$($package.Name).sha256" -Value "$hash  $($package.Name)" -Encoding utf8
+            Copy-Item $package.FullName "site/gui/$channel/$($package.Name)"
+            $hash = (Get-FileHash "site/gui/$channel/$($package.Name)" -Algorithm SHA256).Hash.ToLowerInvariant()
+            Set-Content "site/gui/$channel/$($package.Name).sha256" -Value "$hash  $($package.Name)" -Encoding utf8
 
             $key = $package.BaseName -replace "^puppetty-gui-", ""
             $packages[$key] = [ordered]@{
-              package = "latest/$($package.Name)"
+              package = "$channel/$($package.Name)"
               sha256 = $hash
             }
           }
@@ -180,20 +191,43 @@ jobs:
             throw "No app packages were produced"
           }
 
-          $version = "${{ github.ref_name }}" -replace "^gui-v", ""
           [ordered]@{
             version = $version
             tag = "${{ github.ref_name }}"
+            channel = $channel
             packages = $packages
             source = "${{ github.sha }}"
             publishedAt = (Get-Date).ToUniversalTime().ToString("o")
-          } | ConvertTo-Json | Set-Content "site/gui/latest.json" -Encoding utf8
+          } | ConvertTo-Json | Set-Content "site/gui/$channel.json" -Encoding utf8
+
+          # A Pages deployment replaces the entire site, so mirror the
+          # other channel's currently-published content into this
+          # deployment or it would disappear.
+          try {
+            $otherMeta = Invoke-RestMethod -Uri "$siteBase/gui/$other.json"
+            New-Item -ItemType Directory -Force -Path "site/gui/$other" | Out-Null
+            foreach ($p in $otherMeta.packages.PSObject.Properties) {
+              $rel = $p.Value.package
+              if ($rel -notmatch '^(latest|beta)/puppetty-gui-[A-Za-z0-9.-]+\.zip$') {
+                throw "unexpected package path in $other.json: $rel"
+              }
+              Invoke-WebRequest -Uri "$siteBase/gui/$rel" -OutFile "site/gui/$rel"
+              Invoke-WebRequest -Uri "$siteBase/gui/$rel.sha256" -OutFile "site/gui/$rel.sha256"
+            }
+            Invoke-WebRequest -Uri "$siteBase/gui/$other.json" -OutFile "site/gui/$other.json"
+            Write-Host "preserved existing '$other' channel"
+          } catch {
+            Write-Host "no existing '$other' channel to preserve"
+          }
 
           @"
           <!doctype html>
           <title>puppetty-gui installer</title>
-          <pre>iwr -useb https://puppetty-org.github.io/puppetty/gui/install.ps1 | iex</pre>
-          <pre>curl -fsSL https://puppetty-org.github.io/puppetty/gui/install.sh | sh</pre>
+          <pre>iwr -useb $siteBase/gui/install.ps1 | iex</pre>
+          <pre>curl -fsSL $siteBase/gui/install.sh | sh</pre>
+          <pre># beta channel (prereleases, opt-in):
+          `$env:PUPPETTY_CHANNEL = "beta"; iwr -useb $siteBase/gui/install.ps1 | iex
+          curl -fsSL $siteBase/gui/install.sh | CHANNEL=beta sh</pre>
           "@ | Set-Content "site/gui/index.html" -Encoding utf8
 
       - uses: actions/configure-pages@v6

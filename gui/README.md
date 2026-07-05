@@ -93,11 +93,21 @@ iwr -useb https://puppetty-org.github.io/puppetty/gui/install.ps1 | iex
 curl -fsSL https://puppetty-org.github.io/puppetty/gui/install.sh | sh
 ```
 
-The Pages payload contains `install.ps1`, `install.sh`, `latest.json`, and
-`latest/puppetty-gui-<platform>.zip` packages plus `.sha256` files. Bump the version in
-`src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` before tagging. A
-manual run from the Actions tab uploads the app package as a build artifact
-instead of publishing.
+Stable tags deploy to the `latest` channel; tags with a prerelease suffix
+(e.g. `gui-v0.3.0-beta.1`) deploy to the `beta` channel, which the install
+scripts never use unless asked. Installing a beta:
+
+```powershell
+$env:PUPPETTY_CHANNEL = "beta"; iwr -useb https://puppetty-org.github.io/puppetty/gui/install.ps1 | iex
+curl -fsSL https://puppetty-org.github.io/puppetty/gui/install.sh | CHANNEL=beta sh
+```
+
+The Pages payload contains `install.ps1`, `install.sh`, and per channel a
+`<channel>.json` plus `<channel>/puppetty-gui-<platform>.zip` packages with
+`.sha256` files; deploying one channel preserves the other's published
+content. Bump the version in `src-tauri/tauri.conf.json` and
+`src-tauri/Cargo.toml` before tagging. A manual run from the Actions tab
+uploads the app package as a build artifact instead of publishing.
 
 The workflow also files a **draft GitHub Release** for the tag with the
 same zip + `.sha256` assets and auto-generated notes. Publish it after

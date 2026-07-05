@@ -4,6 +4,17 @@ set -eu
 BASE_URL="${BASE_URL:-https://puppetty-org.github.io/puppetty/gui}"
 INSTALL_DIR="${INSTALL_DIR:-}"
 QUIET="${QUIET:-}"
+# Prereleases live on the beta channel and are never installed unless
+# requested: `curl ... | CHANNEL=beta sh`.
+CHANNEL="${CHANNEL:-latest}"
+
+case "$CHANNEL" in
+  latest | beta) ;;
+  *)
+    printf 'puppetty-gui: unknown channel: %s (use latest or beta)\n' "$CHANNEL" >&2
+    exit 1
+    ;;
+esac
 
 say() {
   if [ -z "$QUIET" ]; then
@@ -98,9 +109,9 @@ trap cleanup EXIT INT TERM
 package_path="${tmp}/puppetty-gui.zip"
 sha_path="${tmp}/puppetty-gui.zip.sha256"
 
-say "downloading ${base}/latest/${package}"
-download "${base}/latest/${package}" "$package_path"
-download "${base}/latest/${package}.sha256" "$sha_path"
+say "downloading ${base}/${CHANNEL}/${package}"
+download "${base}/${CHANNEL}/${package}" "$package_path"
+download "${base}/${CHANNEL}/${package}.sha256" "$sha_path"
 
 actual="$(sha256_file "$package_path")"
 expected="$(awk '{print $1}' "$sha_path")"
