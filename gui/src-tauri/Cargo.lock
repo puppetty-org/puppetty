@@ -2621,7 +2621,7 @@ dependencies = [
 
 [[package]]
 name = "puppetty-gui"
-version = "0.2.0-beta.5"
+version = "0.2.0-beta.6"
 dependencies = [
  "fontdb",
  "serde",
