@@ -38,10 +38,10 @@ secret/danger prompts. Two ways to get it:
 Windows:
 
 ```powershell
-iwr https://puppetty-org.github.io/puppetty/gui/install.ps1 | iex
+iwr -useb https://puppetty-org.github.io/puppetty/gui/install.ps1 | iex
 ```
 
-Linux/macOS:
+Linux:
 
 ```sh
 curl -fsSL https://puppetty-org.github.io/puppetty/gui/install.sh | sh
@@ -49,12 +49,14 @@ curl -fsSL https://puppetty-org.github.io/puppetty/gui/install.sh | sh
 
 The script downloads the latest package for your platform, verifies its
 SHA-256 checksum, installs the GUI with the bundled engine, and creates the
-platform shortcut/link. Nothing else is required for the desktop app.
+platform shortcut/link. On Windows it also installs the WebView2 runtime if
+it is missing. On Linux the app needs the WebKitGTK 4.1 runtime
+(`libwebkit2gtk-4.1-0` on Debian/Ubuntu); the installer warns when it is
+absent. macOS packages are not published yet.
 
 To uninstall the desktop app, use Windows **Settings ▸ Apps ▸ Installed
-apps**, select **puppetty-gui**, and choose **Uninstall**. On Linux/macOS,
-run `~/.local/share/puppetty-gui/uninstall.sh` or
-`~/Applications/puppetty-gui/uninstall.sh`, depending on the platform.
+apps**, select **puppetty-gui**, and choose **Uninstall**. On Linux, run
+`~/.local/share/puppetty-gui/uninstall.sh`.
 
 #### Run from source
 

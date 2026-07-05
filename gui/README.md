@@ -45,25 +45,26 @@ while they're shown here.
 Windows:
 
 ```powershell
-iwr https://puppetty-org.github.io/puppetty/gui/install.ps1 | iex
+iwr -useb https://puppetty-org.github.io/puppetty/gui/install.ps1 | iex
 ```
 
-Linux/macOS:
+Linux:
 
 ```sh
 curl -fsSL https://puppetty-org.github.io/puppetty/gui/install.sh | sh
 ```
 
 The script installs the GUI and the Rust engine sidecar, creates the
-platform shortcut/link, and writes an uninstall script. No separate Node.js
-or npm install is required for the desktop app. The CLI/agent toolchain
-(`puppetty` command, MCP server) can additionally be installed with
-`npm install -g puppetty`.
+platform shortcut/link, and writes an uninstall script. On Windows it
+installs the WebView2 runtime if missing; on Linux the app needs the
+WebKitGTK 4.1 runtime (`libwebkit2gtk-4.1-0` on Debian/Ubuntu). No separate
+Node.js or npm install is required for the desktop app. The CLI/agent
+toolchain (`puppetty` command, MCP server) can additionally be installed
+with `npm install -g puppetty`. macOS packages are not published yet.
 
 Uninstall from Windows **Settings ▸ Apps ▸ Installed apps** by selecting
-**puppetty-gui** and choosing **Uninstall**. On Linux/macOS, run
-`~/.local/share/puppetty-gui/uninstall.sh` or
-`~/Applications/puppetty-gui/uninstall.sh`, depending on the platform.
+**puppetty-gui** and choosing **Uninstall**. On Linux, run
+`~/.local/share/puppetty-gui/uninstall.sh`.
 
 ## Dev
 
@@ -80,16 +81,16 @@ crate) and the Rust/Tauri toolchain.
 ## Release
 
 Pushing a tag like `gui-v0.1.0` runs the `GUI installer` GitHub Actions
-workflow: it builds the Tauri app on Windows, Linux, and macOS, zips the app
+workflow: it builds the Tauri app on Windows and Linux, zips the app
 binary with the engine sidecar for each platform, and deploys the static
 install endpoint to GitHub Pages:
 
 ```powershell
-iwr https://puppetty-org.github.io/puppetty/gui/install.ps1 | iex
+iwr -useb https://puppetty-org.github.io/puppetty/gui/install.ps1 | iex
 curl -fsSL https://puppetty-org.github.io/puppetty/gui/install.sh | sh
 ```
 
-The Pages payload contains `install.ps1`, `latest.json`, and
+The Pages payload contains `install.ps1`, `install.sh`, `latest.json`, and
 `latest/puppetty-gui-<platform>.zip` packages plus `.sha256` files. Bump the version in
 `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` before tagging. A
 manual run from the Actions tab uploads the app package as a build artifact

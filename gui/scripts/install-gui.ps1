@@ -13,11 +13,33 @@ function Write-Step([string]$Message) {
   }
 }
 
+function Test-WebView2 {
+  $keys = @(
+    "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+    "HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+    "HKCU:\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+  )
+  foreach ($key in $keys) {
+    $pv = (Get-ItemProperty -Path $key -Name pv -ErrorAction SilentlyContinue).pv
+    if ($pv -and $pv -ne "0.0.0.0") {
+      return $true
+    }
+  }
+  return $false
+}
+
 $base = $BaseUrl.TrimEnd("/")
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("puppetty-gui-install-" + [System.Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $tmp | Out-Null
 
 try {
+  $installRoot = [System.IO.Path]::GetFullPath($InstallDir).TrimEnd("\")
+  $running = Get-Process -Name "puppetty-gui" -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -and [System.IO.Path]::GetDirectoryName($_.Path).TrimEnd("\") -ieq $installRoot }
+  if ($running) {
+    throw "puppetty-gui is running; close it and re-run the installer"
+  }
+
   $packagePath = Join-Path $tmp "puppetty-gui.zip"
   $shaPath = Join-Path $tmp "puppetty-gui.zip.sha256"
   $extractPath = Join-Path $tmp "payload"
@@ -48,6 +70,23 @@ try {
     throw "package is missing puppetty-engine.exe"
   }
 
+  if (-not (Test-WebView2)) {
+    Write-Step "installing the Microsoft Edge WebView2 runtime"
+    $bootstrapper = Join-Path $tmp "MicrosoftEdgeWebview2Setup.exe"
+    Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile $bootstrapper -UseBasicParsing
+    Start-Process -FilePath $bootstrapper -ArgumentList "/silent", "/install" -Wait
+    if (-not (Test-WebView2)) {
+      throw "the WebView2 runtime is required; install it from https://developer.microsoft.com/microsoft-edge/webview2/ and re-run the installer"
+    }
+  }
+
+  if (Test-Path -LiteralPath $InstallDir) {
+    $existing = Get-ChildItem -LiteralPath $InstallDir -Force
+    if ($existing -and -not (Test-Path -LiteralPath (Join-Path $InstallDir "puppetty-gui.exe"))) {
+      throw "$InstallDir is not empty and does not look like a previous puppetty-gui install"
+    }
+    $existing | Remove-Item -Recurse -Force
+  }
   New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
   Copy-Item -Path (Join-Path $extractPath "*") -Destination $InstallDir -Recurse -Force
   Get-ChildItem -LiteralPath $InstallDir -Recurse -File | Unblock-File -ErrorAction SilentlyContinue

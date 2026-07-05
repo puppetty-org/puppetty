@@ -50,19 +50,20 @@ case "$os:$cpu" in
     pkg="linux-x64"
     default_dir="${HOME}/.local/share/puppetty-gui"
     ;;
-  Darwin:x86_64 | Darwin:amd64)
-    pkg="darwin-x64"
-    default_dir="${HOME}/Applications/puppetty-gui"
-    ;;
-  Darwin:arm64 | Darwin:aarch64)
-    pkg="darwin-arm64"
-    default_dir="${HOME}/Applications/puppetty-gui"
-    ;;
   *)
     printf 'puppetty-gui: unsupported platform: %s %s\n' "$os" "$cpu" >&2
     exit 1
     ;;
 esac
+
+ldconfig_bin="$(command -v ldconfig || true)"
+if [ -z "$ldconfig_bin" ] && [ -x /sbin/ldconfig ]; then
+  ldconfig_bin=/sbin/ldconfig
+fi
+if [ -n "$ldconfig_bin" ] && ! "$ldconfig_bin" -p 2>/dev/null | grep -q 'libwebkit2gtk-4\.1\.so'; then
+  printf 'puppetty-gui: warning: libwebkit2gtk-4.1 was not found; the app will not start without it\n' >&2
+  printf 'puppetty-gui: install it first (Debian/Ubuntu: sudo apt install libwebkit2gtk-4.1-0)\n' >&2
+fi
 
 if [ -z "$INSTALL_DIR" ]; then
   INSTALL_DIR="$default_dir"
@@ -98,7 +99,7 @@ fi
 
 say "installing to ${INSTALL_DIR}"
 rm -rf "${tmp}/payload"
-mkdir -p "${tmp}/payload" "$INSTALL_DIR"
+mkdir -p "${tmp}/payload"
 unzip -q "$package_path" -d "${tmp}/payload"
 
 if [ ! -f "${tmp}/payload/puppetty-gui" ]; then
@@ -110,6 +111,13 @@ if [ ! -f "${tmp}/payload/puppetty-engine" ]; then
   exit 1
 fi
 
+if [ -d "$INSTALL_DIR" ] && [ -n "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ] \
+  && [ ! -f "${INSTALL_DIR}/puppetty-gui" ]; then
+  printf 'puppetty-gui: %s is not empty and does not look like a previous puppetty-gui install\n' "$INSTALL_DIR" >&2
+  exit 1
+fi
+rm -rf "$INSTALL_DIR"
+mkdir -p "$INSTALL_DIR"
 cp -R "${tmp}/payload/." "$INSTALL_DIR/"
 chmod +x "${INSTALL_DIR}/puppetty-gui" "${INSTALL_DIR}/puppetty-engine"
 
@@ -123,10 +131,9 @@ rm -rf "$install_dir"
 EOF
 chmod +x "${INSTALL_DIR}/uninstall.sh"
 
-if [ "$os" = "Linux" ]; then
-  mkdir -p "${HOME}/.local/bin" "${HOME}/.local/share/applications"
-  ln -sf "${INSTALL_DIR}/puppetty-gui" "${HOME}/.local/bin/puppetty-gui"
-  cat > "${HOME}/.local/share/applications/puppetty-gui.desktop" <<EOF
+mkdir -p "${HOME}/.local/bin" "${HOME}/.local/share/applications"
+ln -sf "${INSTALL_DIR}/puppetty-gui" "${HOME}/.local/bin/puppetty-gui"
+cat > "${HOME}/.local/share/applications/puppetty-gui.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=puppetty-gui
@@ -134,9 +141,5 @@ Exec=${INSTALL_DIR}/puppetty-gui
 Terminal=false
 Categories=Development;TerminalEmulator;
 EOF
-elif [ "$os" = "Darwin" ]; then
-  mkdir -p "${HOME}/.local/bin"
-  ln -sf "${INSTALL_DIR}/puppetty-gui" "${HOME}/.local/bin/puppetty-gui"
-fi
 
 say "installed"

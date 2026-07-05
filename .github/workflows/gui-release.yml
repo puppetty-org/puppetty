@@ -20,12 +20,6 @@ jobs:
           - os: ubuntu-latest
             pkg: linux-x64
             exe: ""
-          - os: macos-13
-            pkg: darwin-x64
-            exe: ""
-          - os: macos-latest
-            pkg: darwin-arm64
-            exe: ""
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -139,7 +133,7 @@ jobs:
           @"
           <!doctype html>
           <title>puppetty-gui installer</title>
-          <pre>iwr https://puppetty-org.github.io/puppetty/gui/install.ps1 | iex</pre>
+          <pre>iwr -useb https://puppetty-org.github.io/puppetty/gui/install.ps1 | iex</pre>
           <pre>curl -fsSL https://puppetty-org.github.io/puppetty/gui/install.sh | sh</pre>
           "@ | Set-Content "site/gui/index.html" -Encoding utf8
 
