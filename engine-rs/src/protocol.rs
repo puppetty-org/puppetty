@@ -56,11 +56,36 @@ pub fn pipe_path(name: &str) -> String {
 pub fn is_promptish(line: &str) -> bool {
     static PROGRESS: OnceLock<regex::Regex> = OnceLock::new();
     static ENDING: OnceLock<regex::Regex> = OnceLock::new();
+    static KEYPRESS: OnceLock<regex::Regex> = OnceLock::new();
     let progress = PROGRESS
         .get_or_init(|| regex::Regex::new(r"\d\s*%|\(\d+/\d+\)|\bMiB\b|\bKiB\b|\bGiB\b").unwrap());
     if progress.is_match(line) {
         return false;
     }
+    // "Press ENTER to open in the browser..." (npm's web login) ends in an
+    // ellipsis, which the ending heuristic can't accept in general — every
+    // "Compiling..." would become a prompt. Match the phrasing instead.
+    let keypress = KEYPRESS
+        .get_or_init(|| regex::Regex::new(r"(?i)\bpress\s+(enter|return|any key)\b").unwrap());
     let ending = ENDING.get_or_init(|| regex::Regex::new(r"[:?>\])]\s*$").unwrap());
-    ending.is_match(line) || line.contains('?')
+    ending.is_match(line) || line.contains('?') || keypress.is_match(line)
+}
+
+#[cfg(test)]
+mod promptish_tests {
+    use super::is_promptish;
+
+    #[test]
+    fn press_enter_with_trailing_ellipsis_is_promptish() {
+        assert!(is_promptish("Press ENTER to open in the browser..."));
+        assert!(is_promptish("press any key to continue . . ."));
+        assert!(is_promptish("Press Return to accept the default"));
+    }
+
+    #[test]
+    fn progress_ellipsis_is_not_promptish() {
+        assert!(!is_promptish("Compiling..."));
+        assert!(!is_promptish("Downloading 42 MiB..."));
+        assert!(!is_promptish("installing dependencies..."));
+    }
 }
