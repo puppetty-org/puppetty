@@ -85,6 +85,25 @@ fn is_first_run() -> bool {
     *FIRST_RUN.get_or_init(|| !window_state_path().exists())
 }
 
+// The shell for new tabs: PowerShell on Windows (the GUI's home platform),
+// the user's $SHELL elsewhere with a per-OS fallback.
+#[tauri::command]
+fn default_shell() -> Vec<String> {
+    #[cfg(windows)]
+    {
+        vec!["pwsh".to_string()]
+    }
+    #[cfg(not(windows))]
+    {
+        let fallback = if cfg!(target_os = "macos") { "/bin/zsh" } else { "/bin/sh" };
+        let sh = std::env::var("SHELL")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| fallback.to_string());
+        vec![sh]
+    }
+}
+
 #[tauri::command]
 fn get_remote_debug() -> bool {
     read_gui_config()["remoteDebugPort"].as_u64().is_some()
@@ -606,6 +625,7 @@ fn main() {
             get_remote_debug,
             set_remote_debug,
             is_first_run,
+            default_shell,
         ])
         .run(tauri::generate_context!())
         .expect("error while running puppetty-gui");

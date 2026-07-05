@@ -98,6 +98,8 @@ body:not(.tabs-left) #tabs { align-self: flex-end; }
   border-radius: 4px;
 }
 .tab-close:hover { color: #f7768e; background: rgba(247, 118, 142, 0.15); }
+.tab.pending .tab-label { color: var(--dim); font-style: italic; }
+.tab.error .tab-label { color: #f7768e; }
 
 #actions { display: flex; gap: 6px; }
 #actions button {
