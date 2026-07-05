@@ -67,7 +67,7 @@ jobs:
             chmod +x "pkg/$pkg"/puppetty-engine* || true
             node -e "
               require('fs').writeFileSync('pkg/$pkg/package.json', JSON.stringify({
-                name: '@puppetty/$pkg', version: '$VERSION',
+                name: '@puppetty/engine-$pkg', version: '$VERSION',
                 description: 'puppetty engine binary ($pkg)',
                 os: ['$os' === 'win32' ? 'win32' : '$os'], cpu: ['$cpu' === 'x64' ? 'x64' : 'arm64'],
                 license: 'MIT',

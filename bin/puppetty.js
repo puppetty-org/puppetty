@@ -17,11 +17,10 @@ function resolveEngine() {
     if (fs.existsSync(dev)) return dev;
   }
   const pkg = {
-    'win32-x64': '@puppetty/win32-x64',
-    'linux-x64': '@puppetty/linux-x64-gnu',
-    'linux-arm64': '@puppetty/linux-arm64-gnu',
-    'darwin-x64': '@puppetty/darwin-x64',
-    'darwin-arm64': '@puppetty/darwin-arm64',
+    'win32-x64': '@puppetty/engine-win32-x64',
+    'linux-x64': '@puppetty/engine-linux-x64-gnu',
+    'linux-arm64': '@puppetty/engine-linux-arm64-gnu',
+    'darwin-arm64': '@puppetty/engine-darwin-arm64',
   }[`${process.platform}-${process.arch}`];
   try {
     const require = createRequire(import.meta.url);
