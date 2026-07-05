@@ -241,6 +241,18 @@
     </form>
   </dialog>
 
+  <!-- Generic confirm/alert: window.confirm and window.alert are not
+       implemented in WKWebView/WebKitGTK, so dialogs must live in the UI. -->
+  <dialog id="confirm-dialog">
+    <form method="dialog">
+      <p id="confirm-dialog-msg"></p>
+      <menu>
+        <button value="cancel" id="confirm-dialog-cancel" data-i18n="common.cancel">Cancel</button>
+        <button value="ok" data-i18n="common.ok">OK</button>
+      </menu>
+    </form>
+  </dialog>
+
   <!-- Frameless-window resize grips (decorations are disabled) -->
   <div class="resize-grip rg-n"  data-dir="North"></div>
   <div class="resize-grip rg-s"  data-dir="South"></div>

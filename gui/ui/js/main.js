@@ -364,11 +364,32 @@ async function sizeToGrid(s) {
   }
 }
 
+// window.confirm and window.alert are not implemented in WKWebView (macOS)
+// or WebKitGTK (Linux) — confirm() silently returns undefined — so all
+// confirmations and error popups go through this in-app dialog.
+const confirmDialog = document.getElementById('confirm-dialog');
+function uiConfirm(message) {
+  return new Promise((resolve) => {
+    document.getElementById('confirm-dialog-msg').textContent = message;
+    document.getElementById('confirm-dialog-cancel').hidden = false;
+    confirmDialog.addEventListener('close', () => resolve(confirmDialog.returnValue === 'ok'), { once: true });
+    confirmDialog.showModal();
+  });
+}
+function uiAlert(message) {
+  return new Promise((resolve) => {
+    document.getElementById('confirm-dialog-msg').textContent = message;
+    document.getElementById('confirm-dialog-cancel').hidden = true;
+    confirmDialog.addEventListener('close', () => resolve(), { once: true });
+    confirmDialog.showModal();
+  });
+}
+
 async function closeSession(name) {
   const s = sessions.get(name);
   if (!s) return;
   if (s.alive) {
-    if (!confirm(`Kill session "${name}"?`)) return;
+    if (!(await uiConfirm(t('tab.confirmKill').replace('{name}', name)))) return;
     await invoke('kill_session', { name }).catch(() => {});
     // tab is removed when the exit event arrives
   } else {
@@ -670,7 +691,7 @@ document.getElementById('pref-feed').onchange = (e) => {
   prefs.showFeed = e.target.checked; applyFeed(prefs.showFeed); savePrefs();
 };
 document.getElementById('pref-remotedebug').onchange = (e) => {
-  invoke('set_remote_debug', { enabled: e.target.checked }).catch((err) => alert(err));
+  invoke('set_remote_debug', { enabled: e.target.checked }).catch((err) => uiAlert(String(err)));
 };
 document.getElementById('pref-theme').onchange = (e) => {
   prefs.theme = e.target.value; applyTheme(prefs.theme); savePrefs();
@@ -899,14 +920,14 @@ async function saveUserConfig({ rerender = true } = {}) {
     if (rerender) await loadRules(); // re-render effective view (also re-syncs the model)
     return true;
   } catch (e) {
-    alert(String(e)); // validation error from the engine
+    await uiAlert(String(e)); // validation error from the engine
     return false;
   }
 }
 
 async function removeRule(i) {
   const r = userConfigObj.rules[i];
-  if (!confirm(t('rule.confirmRemove').replace('{name}', r?.name || ''))) return;
+  if (!(await uiConfirm(t('rule.confirmRemove').replace('{name}', r?.name || '')))) return;
   userConfigObj.rules.splice(i, 1);
   await saveUserConfig();
 }
@@ -1111,7 +1132,7 @@ async function loadCreds() {
     const del = document.createElement('button');
     del.textContent = 'remove';
     del.onclick = async () => {
-      if (!confirm(`Remove credential "${ref}"?`)) return;
+      if (!(await uiConfirm(t('cred.confirmRemove').replace('{ref}', ref)))) return;
       await invoke('cred_rm', { reference: ref }).catch(() => {});
       loadCreds();
     };
@@ -1130,7 +1151,7 @@ document.getElementById('cred-add-btn').onclick = async () => {
     document.getElementById('cred-secret').value = '';
     loadCreds();
   } catch (e) {
-    alert(`failed to store: ${e}`);
+    await uiAlert(`failed to store: ${e}`);
   }
 };
 
