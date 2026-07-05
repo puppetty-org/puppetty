@@ -73,7 +73,7 @@ jobs:
                 license: 'MIT',
                 repository: { type: 'git', url: 'git+https://github.com/puppetty-org/puppetty.git' },
               }, null, 2))"
-            npm publish "pkg/$pkg" --access public --tag "$TAG"
+            npm publish "./pkg/$pkg" --access public --tag "$TAG"
           done
           node -e "
             const fs = require('fs');
