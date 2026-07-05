@@ -32,11 +32,14 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: gui/package-lock.json
 
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
         with:
+          cache-on-failure: true
           workspaces: |
             engine-rs
             gui/src-tauri
@@ -51,12 +54,16 @@ jobs:
             librsvg2-dev \
             patchelf
 
+      # Debug profile: CI is a compile smoke check, and the release profile's
+      # fat LTO link dominates build time. Releases still build with --release.
       - name: Install frontend dependencies
         working-directory: gui
+        env:
+          PUPPETTY_ENGINE_PROFILE: debug
         run: |
           npm ci
           npm run vendor
 
       - name: Build app
         working-directory: gui
-        run: npx tauri build --no-bundle
+        run: npx tauri build --debug --no-bundle
