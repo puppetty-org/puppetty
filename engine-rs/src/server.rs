@@ -152,6 +152,14 @@ mod tests {
         })
         .unwrap();
         let srv = session.clone();
+        #[cfg(not(windows))]
+        {
+            let listener = bind(&name).expect("bind control endpoint");
+            tokio::spawn(async move {
+                let _ = serve(listener, srv).await;
+            });
+        }
+        #[cfg(windows)]
         tokio::spawn(async move {
             let _ = serve(srv).await;
         });
