@@ -28,12 +28,25 @@ pub async fn serve(session: Arc<Session>) -> std::io::Result<()> {
     }
 }
 
+/// Bind the Unix control socket up front so a failure (path too long, bad
+/// permissions) is fatal at session start instead of leaving a silently
+/// unreachable session behind.
 #[cfg(not(windows))]
-pub async fn serve(session: Arc<Session>) -> std::io::Result<()> {
-    use tokio::net::UnixListener;
-    let path = pipe_path(&session.name);
+pub fn bind(name: &str) -> std::io::Result<tokio::net::UnixListener> {
+    use std::os::unix::fs::PermissionsExt;
+    let path = pipe_path(name);
     let _ = std::fs::remove_file(&path);
-    let listener = UnixListener::bind(&path)?;
+    let listener = tokio::net::UnixListener::bind(&path)?;
+    // Only the owner may drive the session (umask-independent).
+    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    Ok(listener)
+}
+
+#[cfg(not(windows))]
+pub async fn serve(
+    listener: tokio::net::UnixListener,
+    session: Arc<Session>,
+) -> std::io::Result<()> {
     loop {
         let (conn, _) = listener.accept().await?;
         let session = session.clone();

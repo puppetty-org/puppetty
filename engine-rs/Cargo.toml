@@ -1,6 +1,6 @@
 [package]
 name = "puppetty-engine"
-version = "0.2.0-beta.2"
+version = "0.2.0-beta.3"
 edition = "2021"
 description = "puppetty session engine, Rust port (alpha): PTY host with a JSON-lines control protocol"
 license = "MIT"
@@ -24,3 +24,6 @@ anyhow = "1"
 [profile.release]
 strip = true
 lto = true
+
+[target."cfg(unix)".dependencies]
+libc = "0.2.186"

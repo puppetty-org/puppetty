@@ -25,7 +25,7 @@ type WriterMap = Arc<Mutex<HashMap<String, WriteHalf<SessionStream>>>>;
 struct Writers(WriterMap);
 
 // Mirrors engine-rs/src/protocol.rs: named pipe on Windows, Unix domain
-// socket in the temp dir elsewhere.
+// socket under ~/.puppetty/run elsewhere.
 #[cfg(windows)]
 fn pipe_path(name: &str) -> String {
     format!(r"\\.\pipe\puppetty-{}", name)
@@ -33,10 +33,37 @@ fn pipe_path(name: &str) -> String {
 
 #[cfg(not(windows))]
 fn pipe_path(name: &str) -> String {
-    std::env::temp_dir()
-        .join(format!("puppetty-{name}.sock"))
-        .to_string_lossy()
-        .into_owned()
+    // Mirrors engine-rs/src/protocol.rs: sockets live in ~/.puppetty/run
+    // (short and stable across login contexts), long names are hashed to
+    // stay under the sun_path cap.
+    let dir = puppetty_home().join("run");
+    let _ = std::fs::create_dir_all(&dir);
+    let file = if name.len() <= 40 {
+        format!("{name}.sock")
+    } else {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        name.hash(&mut h);
+        let prefix: String = name.chars().take(24).collect();
+        format!("{prefix}-{:016x}.sock", h.finish())
+    };
+    dir.join(file).to_string_lossy().into_owned()
+}
+
+// Prefer the endpoint the session host recorded in the registry (it
+// survives engine-version and environment differences), else compute it.
+fn endpoint_for(name: &str) -> String {
+    let meta = puppetty_home().join("sessions").join(format!("{name}.json"));
+    if let Ok(text) = std::fs::read_to_string(meta) {
+        if let Ok(v) = serde_json::from_str::<Value>(&text) {
+            if let Some(p) = v["pipe"].as_str() {
+                if !p.is_empty() {
+                    return p.to_string();
+                }
+            }
+        }
+    }
+    pipe_path(name)
 }
 
 fn puppetty_home() -> PathBuf {
@@ -227,7 +254,7 @@ async fn run_cli(args: &[&str], stdin_data: Option<String>) -> Result<String, St
 #[cfg(windows)]
 async fn open_pipe(name: &str) -> Result<SessionStream, String> {
     for _ in 0..30 {
-        match ClientOptions::new().open(pipe_path(name)) {
+        match ClientOptions::new().open(endpoint_for(name)) {
             Ok(c) => return Ok(c),
             Err(e) if matches!(e.raw_os_error(), Some(2) | Some(231)) => {
                 tokio::time::sleep(Duration::from_millis(50)).await;
@@ -244,7 +271,7 @@ async fn open_pipe(name: &str) -> Result<SessionStream, String> {
 async fn open_pipe(name: &str) -> Result<SessionStream, String> {
     use std::io::ErrorKind;
     for _ in 0..30 {
-        match tokio::net::UnixStream::connect(pipe_path(name)).await {
+        match tokio::net::UnixStream::connect(endpoint_for(name)).await {
             Ok(c) => return Ok(c),
             Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::ConnectionRefused) => {
                 tokio::time::sleep(Duration::from_millis(50)).await;
