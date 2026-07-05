@@ -18,8 +18,6 @@ jobs:
             pkg: linux-x64-gnu
           - os: ubuntu-24.04-arm
             pkg: linux-arm64-gnu
-          - os: macos-13
-            pkg: darwin-x64
           - os: macos-latest
             pkg: darwin-arm64
     runs-on: ${{ matrix.os }}
