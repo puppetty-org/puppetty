@@ -62,6 +62,7 @@ body:not(.tabs-left) #tabs { align-self: flex-end; }
 #tabs { display: flex; gap: 4px; overflow-x: auto; }
 
 .tab {
+  -webkit-user-select: none;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -98,6 +99,8 @@ body:not(.tabs-left) #tabs { align-self: flex-end; }
   border-radius: 4px;
 }
 .tab-close:hover { color: #f7768e; background: rgba(247, 118, 142, 0.15); }
+.tab-add, #window-controls button, .key-chip { -webkit-user-select: none; user-select: none; }
+body.is-mac .resize-grip { display: none; }
 .tab.pending .tab-label { color: var(--dim); font-style: italic; }
 .tab.error .tab-label { color: #f7768e; }
 .suppress-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); margin: 8px 0 0; cursor: pointer; }
@@ -169,7 +172,7 @@ dialog label { display: block; font-size: 12px; color: var(--dim); margin-bottom
 dialog label.inline { display: flex; align-items: center; gap: 6px; }
 dialog label.inline input { width: auto; margin: 0; }
 .ask-line {
-  font-family: "Cascadia Mono", Consolas, monospace;
+  font-family: "Cascadia Mono", Consolas, Menlo, Monaco, "DejaVu Sans Mono", monospace;
   font-size: 13px;
   color: var(--fg);
   background: var(--bg);
@@ -199,7 +202,7 @@ dialog label.inline input { width: auto; margin: 0; }
 #rules-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 #rules-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
 #rules-table td.rule-name { color: var(--fg); white-space: nowrap; }
-#rules-table td.rule-match { font-family: "Cascadia Mono", Consolas, monospace; color: var(--dim); word-break: break-all; }
+#rules-table td.rule-match { font-family: "Cascadia Mono", Consolas, Menlo, Monaco, "DejaVu Sans Mono", monospace; color: var(--dim); word-break: break-all; }
 .rule-badge { display: inline-block; font-size: 10px; padding: 1px 7px; border-radius: 10px; text-transform: uppercase; }
 .rule-badge.auto { background: rgba(158,206,106,0.18); color: #9ece6a; }
 .rule-badge.confirm { background: rgba(224,175,104,0.18); color: var(--warn); }
@@ -231,7 +234,7 @@ tr.rule-off .rule-name, tr.rule-off .rule-match, tr.rule-off .rule-badge, tr.rul
 #rule-f-suggest:disabled { opacity: 0.5; cursor: default; }
 .describe-actions .field-hint { margin: 0; }
 .pref-sub { margin: -4px 0 10px; font-size: 11px; }
-#pref-aicommand { width: 180px; font-family: "Cascadia Mono", Consolas, monospace; }
+#pref-aicommand { width: 180px; font-family: "Cascadia Mono", Consolas, Menlo, Monaco, "DejaVu Sans Mono", monospace; }
 .ask-keys { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
 .ask-keys-label { font-size: 11px; color: var(--dim); }
 .key-chip { background: var(--bg-alt-a, var(--bg-alt)); color: var(--fg); border: 1px solid var(--border); border-radius: 5px; padding: 2px 9px; cursor: pointer; font-size: 11px; }
@@ -257,7 +260,7 @@ body.tabs-left .tab-add { align-self: auto; }
 #rule-dialog-err { color: #f7768e; font-size: 12px; min-height: 15px; margin-bottom: 8px; }
 #rule-dialog-save { border-color: var(--accent); color: var(--accent); }
 
-#config-text { width: 100%; font-family: "Cascadia Mono", Consolas, monospace; font-size: 12px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 10px; resize: vertical; }
+#config-text { width: 100%; font-family: "Cascadia Mono", Consolas, Menlo, Monaco, "DejaVu Sans Mono", monospace; font-size: 12px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 10px; resize: vertical; }
 .config-actions { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 10px; }
 #config-status { font-size: 12px; flex: 1; }
 #config-status.ok { color: #9ece6a; }
@@ -265,7 +268,7 @@ body.tabs-left .tab-add { align-self: auto; }
 #config-save, #cred-add-btn { background: transparent; color: var(--accent); border: 1px solid var(--accent); border-radius: 6px; padding: 6px 14px; cursor: pointer; }
 #cred-list { list-style: none; padding: 0; margin: 0 0 12px; }
 #cred-list li { display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 6px; font-size: 13px; }
-#cred-list .cred-ref { font-family: "Cascadia Mono", Consolas, monospace; }
+#cred-list .cred-ref { font-family: "Cascadia Mono", Consolas, Menlo, Monaco, "DejaVu Sans Mono", monospace; }
 #cred-list button { background: none; border: none; color: #f7768e; cursor: pointer; font-size: 12px; }
 #cred-list .empty { color: var(--dim); border: none; }
 .cred-add { display: flex; gap: 8px; }

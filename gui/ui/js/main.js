@@ -23,7 +23,7 @@ const DEFAULT_PREFS = {
   tabPos: 'top',        // 'top' (horizontal) | 'left' (vertical)
   showFeed: false,
   theme: 'midnight',    // midnight | slate | light
-  fontFamily: 'Cascadia Mono, Consolas, monospace',
+  fontFamily: 'Cascadia Mono, Consolas, Menlo, Monaco, DejaVu Sans Mono, Noto Sans Mono, monospace',
   fontSize: 14,
   opacity: 1,           // window/background opacity (0.5–1.0)
   onLastTab: 'newShell', // when the last tab closes: 'quit' the app | 'newShell'
@@ -193,17 +193,25 @@ function applyAllPrefs() {
 }
 
 // ---- custom window titlebar (frameless): controls + resize grips ----
+const IS_MAC = navigator.platform.startsWith('Mac');
+if (IS_MAC) document.body.classList.add('is-mac');
+
 const appWindow = window.__TAURI__?.window?.getCurrentWindow?.();
 if (appWindow) {
   document.getElementById('win-min').onclick = () => appWindow.minimize();
   document.getElementById('win-max').onclick = () => appWindow.toggleMaximize();
   document.getElementById('win-close').onclick = () => appWindow.close();
-  document.querySelectorAll('.resize-grip').forEach((grip) => {
-    grip.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-      appWindow.startResizeDragging(grip.dataset.dir);
+  // tao does not support programmatic drag-resize on macOS, and the grips'
+  // preventDefault would swallow the native borderless edge-resize — so on
+  // macOS the grips stay uninstalled (and hidden via body.is-mac CSS).
+  if (!IS_MAC) {
+    document.querySelectorAll('.resize-grip').forEach((grip) => {
+      grip.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        appWindow.startResizeDragging(grip.dataset.dir);
+      });
     });
-  });
+  }
 }
 
 // name -> { term, fit, holder, tab, alive, blocked, lastUserInput, autonomousAt, killedByUser }
@@ -545,7 +553,12 @@ await listen('session-msg', ({ payload }) => {
     s.blocked = false;
     removeTab(payload.name); // the process ended — close its tab
   } else if (msg.event === 'disconnected' && s.alive) {
-    s.tabLabel.innerHTML = `${payload.name}<span class="status">disconnected</span>`;
+    // textContent, not innerHTML: session names are caller-controlled.
+    s.tabLabel.textContent = payload.name;
+    const status = document.createElement('span');
+    status.className = 'status';
+    status.textContent = 'disconnected';
+    s.tabLabel.appendChild(status);
   }
 });
 
@@ -706,6 +719,12 @@ document.getElementById('pref-confirmkill').onchange = (e) => {
 document.getElementById('pref-remotedebug').onchange = (e) => {
   invoke('set_remote_debug', { enabled: e.target.checked }).catch((err) => uiAlert(String(err)));
 };
+// The remote-debug toggle only exists where the platform can deliver CDP.
+invoke('remote_debug_supported')
+  .then((ok) => {
+    if (!ok) document.getElementById('pref-remotedebug').closest('.pref-row').hidden = true;
+  })
+  .catch(() => {});
 document.getElementById('pref-theme').onchange = (e) => {
   prefs.theme = e.target.value; applyTheme(prefs.theme); savePrefs();
 };

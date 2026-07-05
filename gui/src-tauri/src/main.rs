@@ -603,11 +603,47 @@ fn notify(app: AppHandle, title: String, body: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+// GUI apps launched from Finder/the dock inherit launchd's minimal PATH
+// (/usr/bin:/bin:...), so user-configured commands — deciders, the AI helper
+// (`claude -p`) — don't resolve. Ask the user's login shell for its PATH once
+// at startup and adopt it. Markers guard against rc files that print output.
+#[cfg(not(windows))]
+fn adopt_login_shell_path() {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+    let Ok(out) = std::process::Command::new(&shell)
+        .args(["-lc", "printf '__PPT[%s]TPP__' \"$PATH\""])
+        .output()
+    else {
+        return;
+    };
+    let text = String::from_utf8_lossy(&out.stdout);
+    if let Some(path) = text
+        .split("__PPT[")
+        .nth(1)
+        .and_then(|rest| rest.split("]TPP__").next())
+    {
+        if !path.trim().is_empty() {
+            std::env::set_var("PATH", path.trim());
+        }
+    }
+}
+
+// Remote debugging is a WebView2 (CDP) capability; WKWebView has no CDP and
+// WebKitGTK's inspector works differently, so the Settings toggle only
+// exists where it can deliver.
+#[tauri::command]
+fn remote_debug_supported() -> bool {
+    cfg!(windows)
+}
+
 fn main() {
+    #[cfg(not(windows))]
+    adopt_login_shell_path();
     let _ = is_first_run(); // capture before the plugin can write the file
     // Opt-in remote debugging (CDP): WebView2 reads this env var at webview
     // creation, so it must be set before the builder runs. Toggled in
     // Settings; off by default — CDP means full control of this window.
+    #[cfg(windows)]
     if let Some(port) = read_gui_config()["remoteDebugPort"].as_u64() {
         let mut args = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").unwrap_or_default();
         if !args.contains("--remote-debugging-port") {
@@ -645,6 +681,7 @@ fn main() {
             is_first_run,
             default_shell,
             list_mono_fonts,
+            remote_debug_supported,
         ])
         .run(tauri::generate_context!())
         .expect("error while running puppetty-gui");
