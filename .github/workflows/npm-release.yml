@@ -2,7 +2,9 @@ name: npm release
 
 # Publishes the Rust engine to npm as platform binary packages plus the
 # `puppetty` launcher shim (the esbuild/Biome model). Trigger: push a tag
-# like `npm-v0.2.0`. Requires the NPM_TOKEN repository secret.
+# like `npm-v0.2.0`. Publishes via npm trusted publishing (OIDC): npmjs.com
+# is configured to trust this repo + workflow file, so there is no
+# long-lived token and npm attaches provenance attestations automatically.
 on:
   push:
     tags: ["npm-v*"]
@@ -40,18 +42,20 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm >= 11.5.1; Node 22 bundles npm 10.
+      - run: npm install -g npm@latest
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: artifacts
       - name: Publish platform packages and shim
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           VERSION="${GITHUB_REF_NAME#npm-v}"
           # Prerelease versions publish under the `beta` dist-tag so that
