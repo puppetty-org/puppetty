@@ -1,12 +1,14 @@
 #!/bin/sh
 set -eu
 
-BASE_URL="${BASE_URL:-https://puppetty-org.github.io/puppetty/gui}"
+REPO="${REPO:-puppetty-org/puppetty}"
 INSTALL_DIR="${INSTALL_DIR:-}"
 QUIET="${QUIET:-}"
-# Prereleases live on the beta channel and are never installed unless
-# requested: `curl ... | CHANNEL=beta sh`.
+# Prereleases are never installed unless requested: `curl ... | CHANNEL=beta sh`.
+# TAG pins an exact release (e.g. TAG=gui-v0.2.0-beta.1) and skips
+# channel resolution.
 CHANNEL="${CHANNEL:-latest}"
+TAG="${TAG:-}"
 
 case "$CHANNEL" in
   latest | beta) ;;
@@ -59,10 +61,12 @@ cpu="$(uname -m)"
 case "$os:$cpu" in
   Linux:x86_64 | Linux:amd64)
     pkg="linux-x64"
+    archive_ext="tar.gz"
     default_dir="${HOME}/.local/share/puppetty-gui"
     ;;
   Darwin:arm64)
     pkg="darwin-arm64"
+    archive_ext="zip"
     default_dir="${HOME}/Applications"
     ;;
   Darwin:*)
@@ -91,13 +95,11 @@ if [ -z "$INSTALL_DIR" ]; then
 fi
 
 if [ "$os" = "Linux" ]; then
-  need_cmd unzip
+  need_cmd tar
 fi
 need_cmd awk
-need_cmd sed
 
-base="$(printf '%s' "$BASE_URL" | sed 's:/*$::')"
-package="puppetty-gui-${pkg}.zip"
+package="puppetty-gui-${pkg}.${archive_ext}"
 tmp="${TMPDIR:-/tmp}/puppetty-gui-install.$$"
 mkdir -p "$tmp"
 
@@ -106,12 +108,35 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-package_path="${tmp}/puppetty-gui.zip"
-sha_path="${tmp}/puppetty-gui.zip.sha256"
+package_path="${tmp}/${package}"
+sha_path="${tmp}/${package}.sha256"
 
-say "downloading ${base}/${CHANNEL}/${package}"
-download "${base}/${CHANNEL}/${package}" "$package_path"
-download "${base}/${CHANNEL}/${package}.sha256" "$sha_path"
+# Resolve the release via the GitHub API: newest published gui-v* release
+# on the requested channel that actually carries this platform's package
+# (skips historical releases with other asset formats). Drafts are never
+# visible to the unauthenticated API.
+if [ -z "$TAG" ]; then
+  say "resolving the newest ${CHANNEL} release"
+  want_prerelease="false"
+  if [ "$CHANNEL" = "beta" ]; then
+    want_prerelease="true"
+  fi
+  download "https://api.github.com/repos/${REPO}/releases?per_page=30" "${tmp}/releases.json"
+  TAG="$(awk -v want="$want_prerelease" -v pkg="\"${package}\"" '
+    /^[[:space:]]*"tag_name":/  { gsub(/[",]/, "", $2); tag = $2 }
+    /^[[:space:]]*"prerelease":/ { gsub(/,/, "", $2); pre = $2 }
+    index($0, pkg) && tag ~ /^gui-v/ && pre == want { print tag; exit }
+  ' "${tmp}/releases.json")"
+  if [ -z "$TAG" ]; then
+    printf 'puppetty-gui: no %s release with %s found in %s\n' "$CHANNEL" "$package" "$REPO" >&2
+    exit 1
+  fi
+fi
+
+download_base="https://github.com/${REPO}/releases/download/${TAG}"
+say "downloading ${download_base}/${package}"
+download "${download_base}/${package}" "$package_path"
+download "${download_base}/${package}.sha256" "$sha_path"
 
 actual="$(sha256_file "$package_path")"
 expected="$(awk '{print $1}' "$sha_path")"
@@ -128,7 +153,7 @@ if [ "$os" = "Darwin" ]; then
   # a generic unzip may not restore faithfully.
   ditto -x -k "$package_path" "${tmp}/payload"
 else
-  unzip -q "$package_path" -d "${tmp}/payload"
+  tar -xzf "$package_path" -C "${tmp}/payload"
 fi
 
 if [ "$os" = "Darwin" ]; then

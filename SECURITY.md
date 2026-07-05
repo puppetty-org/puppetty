@@ -33,12 +33,13 @@ answering as a privilege hierarchy:
 
 ## Build integrity
 
-Release builds run from version tags on clean GitHub-hosted runners. The GUI
-installer endpoint publishes per-platform app packages with SHA-256 files,
-and the install scripts verify the selected package before installing the
-downloaded files. Each release's packages are also attached to a GitHub
-Release for the tag; published release assets are immutable, so the
-install endpoint can always be audited against that tamper-evident copy.
+Release builds run from version tags on clean GitHub-hosted runners and are
+drafted as GitHub Releases; a maintainer reviews and publishes each draft
+before anything is installable. The install scripts download the
+per-platform packages directly from the published release assets — which
+are immutable from the moment of publication — and verify each package's
+SHA-256 before installing. Prereleases are never installed without
+explicit opt-in.
 
 ## Privacy
 

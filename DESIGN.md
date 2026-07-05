@@ -2,6 +2,18 @@
 
 Status: M1–M3 done · MCP mode done · M4 (npm) done · M5 (Rust host) done · Last updated: 2026-07-05
 
+> 2026-07-05 (later): the Pages install endpoint was dropped before its
+> first deploy. The install scripts now resolve the newest published
+> `gui-v*` GitHub Release via the API (prerelease = opt-in beta channel,
+> `TAG=` pins a version) and download the release assets directly —
+> immutable once published, and nothing installs until the maintainer
+> publishes the CI-drafted release. `latest.json` is gone; the Releases
+> API is the metadata. Rationale: one source of truth, a human publish
+> gate, channel semantics enforced by GitHub, and no mutable endpoint —
+> full account takeover defeats any repo-side scheme equally, but scoped
+> credential leaks (e.g. a token with `pages: write`) can no longer swap
+> published binaries silently.
+
 > 2026-07-05: the Rust port (§4.3 / M5) is complete and is now the only
 > engine. `engine-rs` (portable-pty + alacritty_terminal as the screen
 > model) speaks the same JSON-lines protocol; the Node engine is gone and
