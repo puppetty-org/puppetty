@@ -54,6 +54,10 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           VERSION="${GITHUB_REF_NAME#npm-v}"
+          # Prerelease versions publish under the `beta` dist-tag so that
+          # plain `npm install -g puppetty` keeps resolving the last stable.
+          TAG="latest"
+          case "$VERSION" in *-*) TAG="beta";; esac
           for dir in artifacts/bin-*; do
             pkg="${dir#artifacts/bin-}"
             os="${pkg%%-*}"
@@ -69,7 +73,7 @@ jobs:
                 license: 'MIT',
                 repository: { type: 'git', url: 'git+https://github.com/puppetty-org/puppetty.git' },
               }, null, 2))"
-            npm publish "pkg/$pkg" --access public
+            npm publish "pkg/$pkg" --access public --tag "$TAG"
           done
           node -e "
             const fs = require('fs');
@@ -77,4 +81,4 @@ jobs:
             p.version = '$VERSION';
             for (const k of Object.keys(p.optionalDependencies)) p.optionalDependencies[k] = '$VERSION';
             fs.writeFileSync('package.json', JSON.stringify(p, null, 2))"
-          npm publish --access public
+          npm publish --access public --tag "$TAG"
