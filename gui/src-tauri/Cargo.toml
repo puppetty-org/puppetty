@@ -1,6 +1,6 @@
 [package]
 name = "puppetty-gui"
-version = "0.2.0-beta.4"
+version = "0.2.0-beta.5"
 edition = "2021"
 description = "puppetty — controllable terminal sessions for AI agents"
 
@@ -14,6 +14,7 @@ tauri-plugin-window-state = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["net", "io-util", "sync", "time", "process", "macros", "rt-multi-thread"] }
+fontdb = "0.23.0"
 
 [profile.release]
 strip = true

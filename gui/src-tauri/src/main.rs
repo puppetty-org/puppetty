@@ -85,6 +85,24 @@ fn is_first_run() -> bool {
     *FIRST_RUN.get_or_init(|| !window_state_path().exists())
 }
 
+// Full system font enumeration lives here because the webview's Local Font
+// Access API is Chromium-only (absent from WKWebView/WebKitGTK). Monospace
+// comes from each face's own fixed-pitch flag. Async so the directory scan
+// runs off the main thread.
+#[tauri::command]
+async fn list_mono_fonts() -> Vec<String> {
+    let mut db = fontdb::Database::new();
+    db.load_system_fonts();
+    let mut families: Vec<String> = db
+        .faces()
+        .filter(|f| f.monospaced)
+        .filter_map(|f| f.families.first().map(|(name, _)| name.clone()))
+        .collect();
+    families.sort();
+    families.dedup();
+    families
+}
+
 // The shell for new tabs: PowerShell on Windows (the GUI's home platform),
 // the user's $SHELL elsewhere with a per-OS fallback.
 #[tauri::command]
@@ -626,6 +644,7 @@ fn main() {
             set_remote_debug,
             is_first_run,
             default_shell,
+            list_mono_fonts,
         ])
         .run(tauri::generate_context!())
         .expect("error while running puppetty-gui");
