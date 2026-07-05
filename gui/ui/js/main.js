@@ -29,6 +29,7 @@ const DEFAULT_PREFS = {
   onLastTab: 'newShell', // when the last tab closes: 'quit' the app | 'newShell'
   aiCommand: 'claude -p', // CLI the rule editor pipes a prompt to for regex suggestions
   autoAnswer: false,    // default for the New-command "auto-answer prompts" toggle
+  confirmKillTab: true, // ask before the tab ✕ kills a live session
 };
 
 function hexToRgba(hex, a) {
@@ -368,11 +369,26 @@ async function sizeToGrid(s) {
 // or WebKitGTK (Linux) — confirm() silently returns undefined — so all
 // confirmations and error popups go through this in-app dialog.
 const confirmDialog = document.getElementById('confirm-dialog');
-function uiConfirm(message) {
+// opts.suppressKey names a boolean pref: when the user checks "don't ask
+// again" the pref flips to false and the dialog auto-confirms from then on
+// (re-enable from Settings).
+function uiConfirm(message, { suppressKey } = {}) {
+  if (suppressKey && prefs[suppressKey] === false) return Promise.resolve(true);
   return new Promise((resolve) => {
     document.getElementById('confirm-dialog-msg').textContent = message;
     document.getElementById('confirm-dialog-cancel').hidden = false;
-    confirmDialog.addEventListener('close', () => resolve(confirmDialog.returnValue === 'ok'), { once: true });
+    const row = document.getElementById('confirm-dialog-suppress');
+    const box = document.getElementById('confirm-dialog-suppress-box');
+    row.hidden = !suppressKey;
+    box.checked = false;
+    confirmDialog.addEventListener('close', () => {
+      const ok = confirmDialog.returnValue === 'ok';
+      if (ok && suppressKey && box.checked) {
+        prefs[suppressKey] = false;
+        savePrefs();
+      }
+      resolve(ok);
+    }, { once: true });
     confirmDialog.showModal();
   });
 }
@@ -380,6 +396,7 @@ function uiAlert(message) {
   return new Promise((resolve) => {
     document.getElementById('confirm-dialog-msg').textContent = message;
     document.getElementById('confirm-dialog-cancel').hidden = true;
+    document.getElementById('confirm-dialog-suppress').hidden = true;
     confirmDialog.addEventListener('close', () => resolve(), { once: true });
     confirmDialog.showModal();
   });
@@ -389,7 +406,7 @@ async function closeSession(name) {
   const s = sessions.get(name);
   if (!s) return;
   if (s.alive) {
-    if (!(await uiConfirm(t('tab.confirmKill').replace('{name}', name)))) return;
+    if (!(await uiConfirm(t('tab.confirmKill').replace('{name}', name), { suppressKey: 'confirmKillTab' }))) return;
     await invoke('kill_session', { name }).catch(() => {});
     // tab is removed when the exit event arrives
   } else {
@@ -620,6 +637,7 @@ function loadAppearanceControls() {
   document.getElementById('pref-aicommand').value = prefs.aiCommand ?? '';
   document.getElementById('pref-autoanswer').checked = prefs.autoAnswer;
   document.getElementById('pref-feed').checked = prefs.showFeed;
+  document.getElementById('pref-confirmkill').checked = prefs.confirmKillTab !== false;
   invoke('get_remote_debug')
     .then((on) => { document.getElementById('pref-remotedebug').checked = !!on; })
     .catch(() => {});
@@ -631,10 +649,9 @@ function loadAppearanceControls() {
   document.getElementById('pref-opacity-val').textContent = `${op}%`;
 }
 
-let _installedFonts = null; // cached full monospace list once the API grants
+let _installedFonts = null; // cached backend enumeration
 async function populateFontSelect() {
   const sel = document.getElementById('pref-font');
-  const btn = document.getElementById('pref-font-all');
   const cur = primaryFont(prefs.fontFamily);
   const render = (fonts) => {
     const list = fonts.includes(cur) ? fonts.slice() : [cur, ...fonts];
@@ -644,31 +661,24 @@ async function populateFontSelect() {
         .join('') + `<option value="__custom__">${t('appearance.customFont')}</option>`;
     sel.value = cur;
   };
-  // Enumerate every installed monospace family via the Local Font Access API.
-  const loadAll = async () => {
-    try {
-      const list = await window.queryLocalFonts();
-      const fams = [...new Set(list.map((f) => f.family))].filter(isMonospace).sort((a, b) => a.localeCompare(b));
-      if (fams.length) { _installedFonts = fams; render(fams); return true; }
-    } catch { /* denied — keep the probe list */ }
-    return false;
-  };
 
-  // Render an immediate, permission-free list so the control always works.
+  // Render an immediate list from the probe so the control is never empty,
+  // then upgrade to the backend's full enumeration (the webview's Local
+  // Font Access API is Chromium-only, so the backend does the listing).
   render(_installedFonts || FONT_CANDIDATES.filter(fontAvailable).sort((a, b) => a.localeCompare(b)));
-  btn.hidden = true;
-  if (_installedFonts || !window.queryLocalFonts) return;
-
-  // Only auto-enumerate if permission is ALREADY granted — never trigger the
-  // permission popup just from opening Settings. If it's still 'prompt', offer
-  // an explicit opt-in button so the prompt appears only on a deliberate click.
-  let state = 'prompt';
-  try { state = (await navigator.permissions.query({ name: 'local-fonts' })).state; } catch { /* older API */ }
-  if (state === 'granted') {
-    loadAll();
-  } else if (state === 'prompt') {
-    btn.hidden = false;
-    btn.onclick = async () => { if (await loadAll()) btn.hidden = true; };
+  if (_installedFonts) return;
+  try {
+    const fams = await invoke('list_mono_fonts');
+    // Some Nerd Font variants are not flagged fixed-pitch in their tables;
+    // keep any probed candidates the enumeration missed.
+    const merged = [...new Set([...fams, ...FONT_CANDIDATES.filter(fontAvailable)])]
+      .sort((a, b) => a.localeCompare(b));
+    if (merged.length) {
+      _installedFonts = merged;
+      render(merged);
+    }
+  } catch {
+    /* enumeration unavailable — the probe list stays */
   }
 }
 
@@ -689,6 +699,9 @@ document.getElementById('pref-autoanswer').onchange = (e) => {
 };
 document.getElementById('pref-feed').onchange = (e) => {
   prefs.showFeed = e.target.checked; applyFeed(prefs.showFeed); savePrefs();
+};
+document.getElementById('pref-confirmkill').onchange = (e) => {
+  prefs.confirmKillTab = e.target.checked; savePrefs();
 };
 document.getElementById('pref-remotedebug').onchange = (e) => {
   invoke('set_remote_debug', { enabled: e.target.checked }).catch((err) => uiAlert(String(err)));

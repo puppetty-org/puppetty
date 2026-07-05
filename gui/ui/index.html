@@ -112,6 +112,10 @@
           <input type="checkbox" id="pref-feed" />
         </div>
         <div class="pref-row">
+          <label data-i18n="appearance.confirmKillTab">Confirm before a tab's ✕ kills its session</label>
+          <input type="checkbox" id="pref-confirmkill" />
+        </div>
+        <div class="pref-row">
           <label data-i18n="appearance.remoteDebug">Allow remote debugging (CDP, port 9223)</label>
           <input type="checkbox" id="pref-remotedebug" />
         </div>
@@ -127,7 +131,6 @@
         <div class="pref-row">
           <label data-i18n="appearance.fontFamily">Font family</label>
           <div class="font-control">
-            <button type="button" id="pref-font-all" class="linkish" data-i18n="appearance.allFonts" data-i18n-title="appearance.allFonts.title" hidden>All installed…</button>
             <select id="pref-font"></select>
             <input type="text" id="pref-font-custom" data-i18n-placeholder="appearance.customFont.placeholder" placeholder="font family name" hidden />
           </div>
@@ -246,6 +249,10 @@
   <dialog id="confirm-dialog">
     <form method="dialog">
       <p id="confirm-dialog-msg"></p>
+      <label class="suppress-row" id="confirm-dialog-suppress" hidden>
+        <input type="checkbox" id="confirm-dialog-suppress-box" />
+        <span data-i18n="dialog.dontAskAgain">Don't ask again</span>
+      </label>
       <menu>
         <button value="cancel" id="confirm-dialog-cancel" data-i18n="common.cancel">Cancel</button>
         <button value="ok" data-i18n="common.ok">OK</button>
