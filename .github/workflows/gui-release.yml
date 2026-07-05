@@ -123,6 +123,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
+
       - uses: actions/download-artifact@v7
         with:
           path: dist
@@ -138,6 +140,11 @@ jobs:
           for f in puppetty-gui-*; do
             sha256sum "$f" > "$f.sha256"
           done
+          # The install scripts ship as release assets too: the stable
+          # one-liner fetches releases/latest/download/install-gui.*, so
+          # the whole install path — script included — goes live only
+          # when the draft is published, immutably per release.
+          cp ../gui/scripts/install-gui.ps1 ../gui/scripts/install-gui.sh .
           version="${GITHUB_REF_NAME#gui-v}"
           prerelease=""
           case "$version" in *-*) prerelease="--prerelease";; esac
