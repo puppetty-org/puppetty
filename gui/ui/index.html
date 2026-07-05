@@ -129,6 +129,7 @@
           <div class="font-control">
             <button type="button" id="pref-font-all" class="linkish" data-i18n="appearance.allFonts" data-i18n-title="appearance.allFonts.title" hidden>All installed…</button>
             <select id="pref-font"></select>
+            <input type="text" id="pref-font-custom" data-i18n-placeholder="appearance.customFont.placeholder" placeholder="font family name" hidden />
           </div>
         </div>
         <div class="pref-row">
@@ -236,6 +237,18 @@
       <menu>
         <button value="cancel" data-i18n="common.cancel">Cancel</button>
         <button value="save" id="rule-dialog-save" data-i18n="common.save">Save</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <!-- Generic confirm/alert: window.confirm and window.alert are not
+       implemented in WKWebView/WebKitGTK, so dialogs must live in the UI. -->
+  <dialog id="confirm-dialog">
+    <form method="dialog">
+      <p id="confirm-dialog-msg"></p>
+      <menu>
+        <button value="cancel" id="confirm-dialog-cancel" data-i18n="common.cancel">Cancel</button>
+        <button value="ok" data-i18n="common.ok">OK</button>
       </menu>
     </form>
   </dialog>

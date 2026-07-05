@@ -60,11 +60,22 @@ const FONT_CANDIDATES = [
   'Source Code Pro', 'Roboto Mono', 'IBM Plex Mono', 'Hack', 'Inconsolata',
   'DejaVu Sans Mono', 'Liberation Mono', 'Noto Sans Mono', 'Anonymous Pro',
   'PT Mono', 'Iosevka', 'Victor Mono', 'MS Gothic', 'Meiryo',
-  // Ubuntu Mono + common Nerd Font family-name variants (probed by exact name).
+  // macOS staples.
+  'Menlo', 'Monaco', 'SF Mono', 'Andale Mono', 'Osaka-Mono',
+  // Ubuntu Mono + common Nerd Font family-name variants (probed by exact
+  // name; Homebrew casks and manual installs differ in NF / NFM / spelled-out
+  // suffixes). The Custom… entry covers anything not listed here.
   'Ubuntu Mono', 'UbuntuMono NF', 'UbuntuMono NFM', 'UbuntuMono Nerd Font',
   'UbuntuMono Nerd Font Mono', 'CaskaydiaCove NF', 'CaskaydiaCove Nerd Font',
-  'JetBrainsMono NF', 'JetBrainsMono Nerd Font', 'FiraCode NF', 'FiraCode Nerd Font',
-  'Hack NF', 'Hack Nerd Font', 'MesloLGS NF', 'SauceCodePro NF',
+  'CaskaydiaCove NFM', 'CaskaydiaMono NF',
+  'JetBrainsMono NF', 'JetBrainsMono NFM', 'JetBrainsMono Nerd Font',
+  'JetBrainsMono Nerd Font Mono', 'FiraCode NF', 'FiraCode NFM',
+  'FiraCode Nerd Font', 'FiraCode Nerd Font Mono',
+  'Hack NF', 'Hack NFM', 'Hack Nerd Font', 'Hack Nerd Font Mono',
+  'MesloLGS NF', 'MesloLGS Nerd Font', 'MesloLGS Nerd Font Mono',
+  'MesloLGM Nerd Font', 'MesloLGL Nerd Font',
+  'SauceCodePro NF', 'SauceCodePro Nerd Font',
+  'RobotoMono Nerd Font', 'DejaVuSansM Nerd Font', 'Symbols Nerd Font Mono',
 ];
 
 // Detect an installed font by comparing rendered text width against the three
@@ -353,11 +364,32 @@ async function sizeToGrid(s) {
   }
 }
 
+// window.confirm and window.alert are not implemented in WKWebView (macOS)
+// or WebKitGTK (Linux) — confirm() silently returns undefined — so all
+// confirmations and error popups go through this in-app dialog.
+const confirmDialog = document.getElementById('confirm-dialog');
+function uiConfirm(message) {
+  return new Promise((resolve) => {
+    document.getElementById('confirm-dialog-msg').textContent = message;
+    document.getElementById('confirm-dialog-cancel').hidden = false;
+    confirmDialog.addEventListener('close', () => resolve(confirmDialog.returnValue === 'ok'), { once: true });
+    confirmDialog.showModal();
+  });
+}
+function uiAlert(message) {
+  return new Promise((resolve) => {
+    document.getElementById('confirm-dialog-msg').textContent = message;
+    document.getElementById('confirm-dialog-cancel').hidden = true;
+    confirmDialog.addEventListener('close', () => resolve(), { once: true });
+    confirmDialog.showModal();
+  });
+}
+
 async function closeSession(name) {
   const s = sessions.get(name);
   if (!s) return;
   if (s.alive) {
-    if (!confirm(`Kill session "${name}"?`)) return;
+    if (!(await uiConfirm(t('tab.confirmKill').replace('{name}', name)))) return;
     await invoke('kill_session', { name }).catch(() => {});
     // tab is removed when the exit event arrives
   } else {
@@ -606,9 +638,10 @@ async function populateFontSelect() {
   const cur = primaryFont(prefs.fontFamily);
   const render = (fonts) => {
     const list = fonts.includes(cur) ? fonts.slice() : [cur, ...fonts];
-    sel.innerHTML = list
-      .map((f) => `<option value="${f}" style="font-family:'${f}',monospace">${f}</option>`)
-      .join('');
+    sel.innerHTML =
+      list
+        .map((f) => `<option value="${f}" style="font-family:'${f}',monospace">${f}</option>`)
+        .join('') + `<option value="__custom__">${t('appearance.customFont')}</option>`;
     sel.value = cur;
   };
   // Enumerate every installed monospace family via the Local Font Access API.
@@ -658,13 +691,31 @@ document.getElementById('pref-feed').onchange = (e) => {
   prefs.showFeed = e.target.checked; applyFeed(prefs.showFeed); savePrefs();
 };
 document.getElementById('pref-remotedebug').onchange = (e) => {
-  invoke('set_remote_debug', { enabled: e.target.checked }).catch((err) => alert(err));
+  invoke('set_remote_debug', { enabled: e.target.checked }).catch((err) => uiAlert(String(err)));
 };
 document.getElementById('pref-theme').onchange = (e) => {
   prefs.theme = e.target.value; applyTheme(prefs.theme); savePrefs();
 };
 document.getElementById('pref-font').onchange = (e) => {
+  const custom = document.getElementById('pref-font-custom');
+  if (e.target.value === '__custom__') {
+    // Free-text entry: the probe list can never cover every family name
+    // (and queryLocalFonts is Chromium-only, so WKWebView/WebKitGTK users
+    // have no enumeration).
+    custom.hidden = false;
+    custom.value = primaryFont(prefs.fontFamily);
+    custom.focus();
+    return;
+  }
+  custom.hidden = true;
   prefs.fontFamily = `"${e.target.value}", monospace`; applyFont(); savePrefs();
+};
+document.getElementById('pref-font-custom').onchange = (e) => {
+  const name = e.target.value.trim();
+  if (!name) return;
+  prefs.fontFamily = `"${name}", monospace`; applyFont(); savePrefs();
+  e.target.hidden = true;
+  populateFontSelect(); // re-render so the custom family shows as selected
 };
 document.getElementById('pref-fontsize').onchange = (e) => {
   const n = Math.min(32, Math.max(8, Number(e.target.value) || DEFAULT_PREFS.fontSize));
@@ -869,14 +920,14 @@ async function saveUserConfig({ rerender = true } = {}) {
     if (rerender) await loadRules(); // re-render effective view (also re-syncs the model)
     return true;
   } catch (e) {
-    alert(String(e)); // validation error from the engine
+    await uiAlert(String(e)); // validation error from the engine
     return false;
   }
 }
 
 async function removeRule(i) {
   const r = userConfigObj.rules[i];
-  if (!confirm(t('rule.confirmRemove').replace('{name}', r?.name || ''))) return;
+  if (!(await uiConfirm(t('rule.confirmRemove').replace('{name}', r?.name || '')))) return;
   userConfigObj.rules.splice(i, 1);
   await saveUserConfig();
 }
@@ -1081,7 +1132,7 @@ async function loadCreds() {
     const del = document.createElement('button');
     del.textContent = 'remove';
     del.onclick = async () => {
-      if (!confirm(`Remove credential "${ref}"?`)) return;
+      if (!(await uiConfirm(t('cred.confirmRemove').replace('{ref}', ref)))) return;
       await invoke('cred_rm', { reference: ref }).catch(() => {});
       loadCreds();
     };
@@ -1100,7 +1151,7 @@ document.getElementById('cred-add-btn').onclick = async () => {
     document.getElementById('cred-secret').value = '';
     loadCreds();
   } catch (e) {
-    alert(`failed to store: ${e}`);
+    await uiAlert(`failed to store: ${e}`);
   }
 };
 
