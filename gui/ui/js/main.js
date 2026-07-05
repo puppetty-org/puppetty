@@ -60,11 +60,22 @@ const FONT_CANDIDATES = [
   'Source Code Pro', 'Roboto Mono', 'IBM Plex Mono', 'Hack', 'Inconsolata',
   'DejaVu Sans Mono', 'Liberation Mono', 'Noto Sans Mono', 'Anonymous Pro',
   'PT Mono', 'Iosevka', 'Victor Mono', 'MS Gothic', 'Meiryo',
-  // Ubuntu Mono + common Nerd Font family-name variants (probed by exact name).
+  // macOS staples.
+  'Menlo', 'Monaco', 'SF Mono', 'Andale Mono', 'Osaka-Mono',
+  // Ubuntu Mono + common Nerd Font family-name variants (probed by exact
+  // name; Homebrew casks and manual installs differ in NF / NFM / spelled-out
+  // suffixes). The Custom… entry covers anything not listed here.
   'Ubuntu Mono', 'UbuntuMono NF', 'UbuntuMono NFM', 'UbuntuMono Nerd Font',
   'UbuntuMono Nerd Font Mono', 'CaskaydiaCove NF', 'CaskaydiaCove Nerd Font',
-  'JetBrainsMono NF', 'JetBrainsMono Nerd Font', 'FiraCode NF', 'FiraCode Nerd Font',
-  'Hack NF', 'Hack Nerd Font', 'MesloLGS NF', 'SauceCodePro NF',
+  'CaskaydiaCove NFM', 'CaskaydiaMono NF',
+  'JetBrainsMono NF', 'JetBrainsMono NFM', 'JetBrainsMono Nerd Font',
+  'JetBrainsMono Nerd Font Mono', 'FiraCode NF', 'FiraCode NFM',
+  'FiraCode Nerd Font', 'FiraCode Nerd Font Mono',
+  'Hack NF', 'Hack NFM', 'Hack Nerd Font', 'Hack Nerd Font Mono',
+  'MesloLGS NF', 'MesloLGS Nerd Font', 'MesloLGS Nerd Font Mono',
+  'MesloLGM Nerd Font', 'MesloLGL Nerd Font',
+  'SauceCodePro NF', 'SauceCodePro Nerd Font',
+  'RobotoMono Nerd Font', 'DejaVuSansM Nerd Font', 'Symbols Nerd Font Mono',
 ];
 
 // Detect an installed font by comparing rendered text width against the three
@@ -606,9 +617,10 @@ async function populateFontSelect() {
   const cur = primaryFont(prefs.fontFamily);
   const render = (fonts) => {
     const list = fonts.includes(cur) ? fonts.slice() : [cur, ...fonts];
-    sel.innerHTML = list
-      .map((f) => `<option value="${f}" style="font-family:'${f}',monospace">${f}</option>`)
-      .join('');
+    sel.innerHTML =
+      list
+        .map((f) => `<option value="${f}" style="font-family:'${f}',monospace">${f}</option>`)
+        .join('') + `<option value="__custom__">${t('appearance.customFont')}</option>`;
     sel.value = cur;
   };
   // Enumerate every installed monospace family via the Local Font Access API.
@@ -664,7 +676,25 @@ document.getElementById('pref-theme').onchange = (e) => {
   prefs.theme = e.target.value; applyTheme(prefs.theme); savePrefs();
 };
 document.getElementById('pref-font').onchange = (e) => {
+  const custom = document.getElementById('pref-font-custom');
+  if (e.target.value === '__custom__') {
+    // Free-text entry: the probe list can never cover every family name
+    // (and queryLocalFonts is Chromium-only, so WKWebView/WebKitGTK users
+    // have no enumeration).
+    custom.hidden = false;
+    custom.value = primaryFont(prefs.fontFamily);
+    custom.focus();
+    return;
+  }
+  custom.hidden = true;
   prefs.fontFamily = `"${e.target.value}", monospace`; applyFont(); savePrefs();
+};
+document.getElementById('pref-font-custom').onchange = (e) => {
+  const name = e.target.value.trim();
+  if (!name) return;
+  prefs.fontFamily = `"${name}", monospace`; applyFont(); savePrefs();
+  e.target.hidden = true;
+  populateFontSelect(); // re-render so the custom family shows as selected
 };
 document.getElementById('pref-fontsize').onchange = (e) => {
   const n = Math.min(32, Math.max(8, Number(e.target.value) || DEFAULT_PREFS.fontSize));
