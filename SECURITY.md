@@ -35,11 +35,11 @@ answering as a privilege hierarchy:
 
 Release builds run from version tags on clean GitHub-hosted runners and are
 drafted as GitHub Releases; a maintainer reviews and publishes each draft
-before anything is installable. The install scripts download the
-per-platform packages directly from the published release assets — which
-are immutable from the moment of publication — and verify each package's
-SHA-256 before installing. Prereleases are never installed without
-explicit opt-in.
+before anything is installable. The install scripts ship as assets of the
+same release and download the per-platform packages from the published
+release assets — all immutable from the moment of publication — verifying
+each package's SHA-256 before installing. Prereleases are never installed
+without explicit opt-in.
 
 ## Privacy
 

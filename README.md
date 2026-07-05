@@ -37,26 +37,30 @@ secret/danger prompts. Two ways to get it:
 Windows:
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/puppetty-org/puppetty/main/gui/scripts/install-gui.ps1 | iex
+iwr -useb https://github.com/puppetty-org/puppetty/releases/latest/download/install-gui.ps1 | iex
 ```
 
 Linux / macOS (Apple Silicon):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/puppetty-org/puppetty/main/gui/scripts/install-gui.sh | sh
+curl -fsSL https://github.com/puppetty-org/puppetty/releases/latest/download/install-gui.sh | sh
 ```
 
-The script resolves the newest stable release on GitHub Releases, downloads
-your platform's package (release assets are immutable once published),
-verifies its SHA-256 checksum, installs the GUI with the bundled engine,
-and creates the platform shortcut/link. On Windows it also installs the
-WebView2 runtime if it is missing. On Linux the app needs the WebKitGTK 4.1
-runtime (`libwebkit2gtk-4.1-0` on Debian/Ubuntu); the installer warns when
-it is absent. On macOS the app bundle installs into `~/Applications` (Apple
+Script and packages both come from the newest stable GitHub Release —
+assets are immutable once published, so the whole install path is
+release-gated. The script downloads your platform's package, verifies its
+SHA-256 checksum, installs the GUI with the bundled engine, and creates
+the platform shortcut/link. On Windows it also installs the WebView2
+runtime if it is missing. On Linux the app needs the WebKitGTK 4.1 runtime
+(`libwebkit2gtk-4.1-0` on Debian/Ubuntu); the installer warns when it is
+absent. On macOS the app bundle installs into `~/Applications` (Apple
 Silicon only — Intel Macs are not supported).
 
-Prereleases are only installed on explicit opt-in: `CHANNEL=beta` before
-`sh`, or `$env:PUPPETTY_CHANNEL = "beta"` before the `iwr` line on Windows.
+Prereleases are only installed on explicit opt-in — use the development
+script with the beta channel: `CHANNEL=beta` before `sh` (or
+`$env:PUPPETTY_CHANNEL = "beta"` before `iwr`) with
+`https://raw.githubusercontent.com/puppetty-org/puppetty/main/gui/scripts/install-gui.sh`
+(`.ps1` on Windows).
 
 To uninstall the desktop app, use Windows **Settings ▸ Apps ▸ Installed
 apps**, select **puppetty-gui**, and choose **Uninstall**. On Linux, run

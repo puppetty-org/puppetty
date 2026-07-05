@@ -45,18 +45,18 @@ while they're shown here.
 Windows:
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/puppetty-org/puppetty/main/gui/scripts/install-gui.ps1 | iex
+iwr -useb https://github.com/puppetty-org/puppetty/releases/latest/download/install-gui.ps1 | iex
 ```
 
 Linux / macOS (Apple Silicon):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/puppetty-org/puppetty/main/gui/scripts/install-gui.sh | sh
+curl -fsSL https://github.com/puppetty-org/puppetty/releases/latest/download/install-gui.sh | sh
 ```
 
-The script resolves the newest stable GitHub Release, downloads and
-SHA-256-verifies your platform's package, installs the GUI and the Rust
-engine sidecar, creates the
+The script — itself an asset of the newest stable GitHub Release —
+resolves that release, downloads and SHA-256-verifies your platform's
+package, installs the GUI and the Rust engine sidecar, creates the
 platform shortcut/link, and writes an uninstall script. On Windows it
 installs the WebView2 runtime if missing; on Linux the app needs the
 WebKitGTK 4.1 runtime (`libwebkit2gtk-4.1-0` on Debian/Ubuntu); on macOS
@@ -90,15 +90,19 @@ Silicon) and packages the app binary with the engine sidecar for each
 platform — a zip on Windows, a `.tar.gz` on Linux (so the installer needs
 only `tar`), and on macOS the whole `.app` bundle zipped via `ditto` —
 then files a **draft GitHub Release** with the packages, their `.sha256`
-files, and auto-generated notes. Publishing the draft is the release act: assets become immutable
-and installable at that moment, and nothing ships without that explicit
-review step.
+files, the install scripts themselves, and auto-generated notes.
+Publishing the draft is the release act: assets become immutable and
+installable at that moment, and nothing ships without that explicit
+review step. The stable one-liners fetch the script via
+`releases/latest/download/`, so even the script is release-gated.
 
 The install scripts resolve releases through the GitHub API: by default
 the newest published non-prerelease `gui-v*` release that carries the
 platform's package; tags with a prerelease suffix (e.g.
 `gui-v0.3.0-beta.1`, marked as prereleases) are only selected on explicit
-opt-in. Installing a beta, or pinning an exact version:
+opt-in. Beta installs use the development script from `main` (there may
+be no stable release to serve one, and beta testers want the newest
+logic). Installing a beta, or pinning an exact version:
 
 ```powershell
 $env:PUPPETTY_CHANNEL = "beta"; iwr -useb https://raw.githubusercontent.com/puppetty-org/puppetty/main/gui/scripts/install-gui.ps1 | iex
