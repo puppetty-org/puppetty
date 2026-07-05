@@ -1,6 +1,6 @@
 [package]
 name = "puppetty-gui"
-version = "0.2.0-beta.6"
+version = "0.2.0-beta.7"
 edition = "2021"
 description = "puppetty — controllable terminal sessions for AI agents"
 

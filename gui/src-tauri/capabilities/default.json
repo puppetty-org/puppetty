@@ -1,8 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "puppetty-gui main window",
-  "windows": ["main"],
+  "description": "puppetty-gui windows (main + torn-off session windows)",
+  "windows": [
+    "main",
+    "tear-*"
+  ],
   "permissions": [
     "core:default",
     "notification:default",
