@@ -429,17 +429,48 @@ async function shellCommand() {
   return defaultShellCmd;
 }
 
+// Placeholder tab shown while start_session runs (it can take seconds).
+// On failure it becomes a dismissable error tab — errors must live in the
+// UI because WKWebView does not implement window.alert.
+function pendingTab() {
+  const tab = document.createElement('div');
+  tab.className = 'tab pending';
+  const label = document.createElement('span');
+  label.className = 'tab-label';
+  label.textContent = 'starting shell…';
+  tab.appendChild(label);
+  tabsEl.appendChild(tab);
+  return {
+    fail(message) {
+      tab.classList.remove('pending');
+      tab.classList.add('error');
+      label.textContent = message;
+      label.title = message;
+      const close = document.createElement('button');
+      close.className = 'tab-close';
+      close.textContent = '✕';
+      close.onclick = () => tab.remove();
+      tab.appendChild(close);
+    },
+    remove() {
+      tab.remove();
+    },
+  };
+}
+
 let lastShellSpawnAt = 0;
 async function startShell() {
   lastShellSpawnAt = Date.now();
+  const pending = pendingTab();
   try {
     const auto = prefs.autoAnswer;
     const cmd = await shellCommand();
     const created = await invoke('start_session', { command: cmd, name: null, cwdOf: null, auto });
+    pending.remove();
     await openSession(created, cmd, auto);
   } catch (err) {
     console.error('startShell failed:', err);
-    alert(`failed to start a shell: ${err?.message ?? err}`);
+    pending.fail(`shell failed: ${err?.message ?? err}`);
   }
 }
 
@@ -481,6 +512,7 @@ window.addEventListener('resize', () => {
 
 document.getElementById('btn-companion').onclick = async () => {
   if (!active) return startShell(); // no session yet: plain shell instead
+  const pending = pendingTab();
   try {
     const auto = sessions.get(active)?.auto ?? prefs.autoAnswer;
     const created = await invoke('start_session', {
@@ -489,9 +521,11 @@ document.getElementById('btn-companion').onclick = async () => {
       cwdOf: active,
       auto,
     });
+    pending.remove();
     await openSession(created, undefined, auto);
   } catch (err) {
-    alert(`failed to start companion: ${err}`);
+    console.error('companion failed:', err);
+    pending.fail(`shell failed: ${err?.message ?? err}`);
   }
 };
 
