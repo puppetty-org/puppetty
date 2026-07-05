@@ -36,7 +36,9 @@ answering as a privilege hierarchy:
 Release builds run from version tags on clean GitHub-hosted runners. The GUI
 installer endpoint publishes per-platform app packages with SHA-256 files,
 and the install scripts verify the selected package before installing the
-downloaded files.
+downloaded files. Each release's packages are also attached to a GitHub
+Release for the tag; published release assets are immutable, so the
+install endpoint can always be audited against that tamper-evident copy.
 
 ## Privacy
 
