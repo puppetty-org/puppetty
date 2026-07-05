@@ -19,18 +19,17 @@ jobs:
         include:
           - os: windows-latest
             pkg: windows-x64
-            exe: .exe
             build: --no-bundle
+          # Linux ships .tar.gz so the installer needs only tar (unzip is
+          # not guaranteed on minimal systems).
           - os: ubuntu-latest
             pkg: linux-x64
-            exe: ""
             build: --no-bundle
           # macOS ships a real .app bundle (Launchpad/Spotlight need it);
           # the engine sidecar is embedded via externalBin. Apple Silicon
           # only — Intel Macs are not supported.
           - os: macos-latest
             pkg: darwin-arm64
-            exe: ""
             build: --bundles app
     runs-on: ${{ matrix.os }}
     permissions:
@@ -73,20 +72,27 @@ jobs:
         working-directory: gui
         run: npx tauri build ${{ matrix.build }}
 
-      - name: Stage app package (Windows/Linux)
-        if: runner.os != 'macOS'
+      - name: Stage app package (Windows)
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force -Path "dist/package" | Out-Null
-          $gui = "gui/src-tauri/target/release/puppetty-gui${{ matrix.exe }}"
-          $engine = "engine-rs/target/release/puppetty-engine${{ matrix.exe }}"
-          Copy-Item $gui "dist/package/puppetty-gui${{ matrix.exe }}"
-          Copy-Item $engine "dist/package/puppetty-engine${{ matrix.exe }}"
+          Copy-Item "gui/src-tauri/target/release/puppetty-gui.exe" "dist/package/puppetty-gui.exe"
+          Copy-Item "engine-rs/target/release/puppetty-engine.exe" "dist/package/puppetty-engine.exe"
           Compress-Archive `
             -Path "dist/package/*" `
             -DestinationPath "dist/puppetty-gui-${{ matrix.pkg }}.zip" `
             -Force
+
+      - name: Stage app package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist/package
+          cp gui/src-tauri/target/release/puppetty-gui dist/package/
+          cp engine-rs/target/release/puppetty-engine dist/package/
+          tar -czf "dist/puppetty-gui-${{ matrix.pkg }}.tar.gz" \
+            -C dist/package puppetty-gui puppetty-engine
 
       # ditto, not Compress-Archive: the zip must preserve the executable
       # bits and the ad-hoc code-signature structure inside the .app, or
@@ -104,7 +110,8 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: puppetty-gui-${{ matrix.pkg }}
-          path: dist/puppetty-gui-${{ matrix.pkg }}.zip
+          path: dist/puppetty-gui-${{ matrix.pkg }}.*
+          if-no-files-found: error
 
   # The published release is the install source: assets are immutable from
   # the moment the draft is published, and nothing is installable until a
@@ -125,9 +132,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p assets
-          find dist -name 'puppetty-gui-*.zip' -exec cp {} assets/ \;
+          find dist \( -name 'puppetty-gui-*.zip' -o -name 'puppetty-gui-*.tar.gz' \) \
+            -exec cp {} assets/ \;
           cd assets
-          for f in *.zip; do
+          for f in puppetty-gui-*; do
             sha256sum "$f" > "$f.sha256"
           done
           version="${GITHUB_REF_NAME#gui-v}"

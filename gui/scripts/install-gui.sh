@@ -61,10 +61,12 @@ cpu="$(uname -m)"
 case "$os:$cpu" in
   Linux:x86_64 | Linux:amd64)
     pkg="linux-x64"
+    archive_ext="tar.gz"
     default_dir="${HOME}/.local/share/puppetty-gui"
     ;;
   Darwin:arm64)
     pkg="darwin-arm64"
+    archive_ext="zip"
     default_dir="${HOME}/Applications"
     ;;
   Darwin:*)
@@ -93,11 +95,11 @@ if [ -z "$INSTALL_DIR" ]; then
 fi
 
 if [ "$os" = "Linux" ]; then
-  need_cmd unzip
+  need_cmd tar
 fi
 need_cmd awk
 
-package="puppetty-gui-${pkg}.zip"
+package="puppetty-gui-${pkg}.${archive_ext}"
 tmp="${TMPDIR:-/tmp}/puppetty-gui-install.$$"
 mkdir -p "$tmp"
 
@@ -106,8 +108,8 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-package_path="${tmp}/puppetty-gui.zip"
-sha_path="${tmp}/puppetty-gui.zip.sha256"
+package_path="${tmp}/${package}"
+sha_path="${tmp}/${package}.sha256"
 
 # Resolve the release via the GitHub API: newest published gui-v* release
 # on the requested channel that actually carries this platform's package
@@ -151,7 +153,7 @@ if [ "$os" = "Darwin" ]; then
   # a generic unzip may not restore faithfully.
   ditto -x -k "$package_path" "${tmp}/payload"
 else
-  unzip -q "$package_path" -d "${tmp}/payload"
+  tar -xzf "$package_path" -C "${tmp}/payload"
 fi
 
 if [ "$os" = "Darwin" ]; then

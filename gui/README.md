@@ -86,10 +86,11 @@ crate) and the Rust/Tauri toolchain.
 
 Pushing a tag like `gui-v0.2.0` runs the `GUI installer` GitHub Actions
 workflow: it builds the Tauri app on Windows, Linux, and macOS (Apple
-Silicon), zips the app binary with the engine sidecar for each platform
-(on macOS, the whole `.app` bundle via `ditto`), and files a **draft
-GitHub Release** with the zips, their `.sha256` files, and auto-generated
-notes. Publishing the draft is the release act: assets become immutable
+Silicon) and packages the app binary with the engine sidecar for each
+platform — a zip on Windows, a `.tar.gz` on Linux (so the installer needs
+only `tar`), and on macOS the whole `.app` bundle zipped via `ditto` —
+then files a **draft GitHub Release** with the packages, their `.sha256`
+files, and auto-generated notes. Publishing the draft is the release act: assets become immutable
 and installable at that moment, and nothing ships without that explicit
 review step.
 
