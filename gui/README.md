@@ -45,16 +45,18 @@ while they're shown here.
 Windows:
 
 ```powershell
-iwr -useb https://puppetty-org.github.io/puppetty/gui/install.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/puppetty-org/puppetty/main/gui/scripts/install-gui.ps1 | iex
 ```
 
 Linux / macOS (Apple Silicon):
 
 ```sh
-curl -fsSL https://puppetty-org.github.io/puppetty/gui/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/puppetty-org/puppetty/main/gui/scripts/install-gui.sh | sh
 ```
 
-The script installs the GUI and the Rust engine sidecar, creates the
+The script resolves the newest stable GitHub Release, downloads and
+SHA-256-verifies your platform's package, installs the GUI and the Rust
+engine sidecar, creates the
 platform shortcut/link, and writes an uninstall script. On Windows it
 installs the WebView2 runtime if missing; on Linux the app needs the
 WebKitGTK 4.1 runtime (`libwebkit2gtk-4.1-0` on Debian/Ubuntu); on macOS
@@ -82,42 +84,30 @@ crate) and the Rust/Tauri toolchain.
 
 ## Release
 
-Pushing a tag like `gui-v0.1.0` runs the `GUI installer` GitHub Actions
+Pushing a tag like `gui-v0.2.0` runs the `GUI installer` GitHub Actions
 workflow: it builds the Tauri app on Windows, Linux, and macOS (Apple
 Silicon), zips the app binary with the engine sidecar for each platform
-(on macOS, the whole `.app` bundle via `ditto`), and deploys the static
-install endpoint to GitHub Pages:
+(on macOS, the whole `.app` bundle via `ditto`), and files a **draft
+GitHub Release** with the zips, their `.sha256` files, and auto-generated
+notes. Publishing the draft is the release act: assets become immutable
+and installable at that moment, and nothing ships without that explicit
+review step.
+
+The install scripts resolve releases through the GitHub API: by default
+the newest published non-prerelease `gui-v*` release that carries the
+platform's package; tags with a prerelease suffix (e.g.
+`gui-v0.3.0-beta.1`, marked as prereleases) are only selected on explicit
+opt-in. Installing a beta, or pinning an exact version:
 
 ```powershell
-iwr -useb https://puppetty-org.github.io/puppetty/gui/install.ps1 | iex
-curl -fsSL https://puppetty-org.github.io/puppetty/gui/install.sh | sh
+$env:PUPPETTY_CHANNEL = "beta"; iwr -useb https://raw.githubusercontent.com/puppetty-org/puppetty/main/gui/scripts/install-gui.ps1 | iex
+curl -fsSL https://raw.githubusercontent.com/puppetty-org/puppetty/main/gui/scripts/install-gui.sh | CHANNEL=beta sh
+curl -fsSL https://raw.githubusercontent.com/puppetty-org/puppetty/main/gui/scripts/install-gui.sh | TAG=gui-v0.2.0-beta.1 sh
 ```
 
-Stable tags deploy to the `latest` channel; tags with a prerelease suffix
-(e.g. `gui-v0.3.0-beta.1`) deploy to the `beta` channel, which the install
-scripts never use unless asked. Installing a beta:
-
-```powershell
-$env:PUPPETTY_CHANNEL = "beta"; iwr -useb https://puppetty-org.github.io/puppetty/gui/install.ps1 | iex
-curl -fsSL https://puppetty-org.github.io/puppetty/gui/install.sh | CHANNEL=beta sh
-```
-
-The Pages payload contains `install.ps1`, `install.sh`, and per channel a
-`<channel>.json` plus `<channel>/puppetty-gui-<platform>.zip` packages with
-`.sha256` files; deploying one channel preserves the other's published
-content. Bump the version in `src-tauri/tauri.conf.json` and
-`src-tauri/Cargo.toml` before tagging. A manual run from the Actions tab
-uploads the app package as a build artifact instead of publishing.
-
-The workflow also files a **draft GitHub Release** for the tag with the
-same zip + `.sha256` assets and auto-generated notes. Publish it after
-checking: published release assets are immutable, so they are the
-tamper-evident archive that the mutable Pages endpoint can be audited
-against.
-
-The repository must have GitHub Pages enabled with **GitHub Actions** as
-the source before the public `puppetty-org.github.io/puppetty/gui/` URL can
-serve the installer. No separate Pages branch is needed.
+Bump the version in `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`
+before tagging. A manual run from the Actions tab uploads the app package
+as a build artifact instead of drafting a release.
 
 The icon set is generated from `src-tauri/icon-source.png` (drawn by
 `scripts/make-icon.ps1`: a marionette crossbar puppeteering a terminal

@@ -1,9 +1,11 @@
 name: GUI installer
 
-# Builds the Tauri desktop app and publishes a static script installer endpoint.
-# Trigger: push a tag like `gui-v0.1.0` (deploys GitHub Pages and files a
-# draft GitHub Release archiving the same packages), or run manually from
-# the Actions tab (uploads app packages as build artifacts).
+# Builds the Tauri desktop app and files a draft GitHub Release with the
+# per-platform packages. Publishing the draft is the release act: the
+# install scripts (gui/scripts/install-gui.*) resolve the newest published
+# gui-v* release via the GitHub API and download its immutable assets.
+# Trigger: push a tag like `gui-v0.1.0`, or run manually from the Actions
+# tab (uploads app packages as build artifacts only).
 on:
   push:
     tags: ["gui-v*"]
@@ -104,9 +106,9 @@ jobs:
           name: puppetty-gui-${{ matrix.pkg }}
           path: dist/puppetty-gui-${{ matrix.pkg }}.zip
 
-  # Pages is the install endpoint but it is mutable; the draft release
-  # archives the same zip + .sha256 assets immutably (once published), so
-  # the endpoint can always be audited against a tamper-evident copy.
+  # The published release is the install source: assets are immutable from
+  # the moment the draft is published, and nothing is installable until a
+  # human reviews and publishes it.
   publish-release:
     if: startsWith(github.ref, 'refs/tags/gui-v')
     needs: build
@@ -136,105 +138,3 @@ jobs:
             --title "$GITHUB_REF_NAME" \
             --generate-notes \
             --draft $prerelease
-
-  deploy-pages:
-    if: startsWith(github.ref, 'refs/tags/gui-v')
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy-pages.outputs.page_url }}gui/
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/download-artifact@v7
-        with:
-          path: dist
-
-      # Prerelease versions (hyphenated) deploy to the beta channel; the
-      # install scripts default to latest, so a beta is never installed
-      # without explicit opt-in (CHANNEL=beta / $env:PUPPETTY_CHANNEL).
-      - name: Stage Pages site
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $siteBase = "https://puppetty-org.github.io/puppetty"
-
-          $version = "${{ github.ref_name }}" -replace "^gui-v", ""
-          $channel = "latest"
-          if ($version -match "-") { $channel = "beta" }
-          $other = if ($channel -eq "latest") { "beta" } else { "latest" }
-          Write-Host "deploying $version to channel '$channel'"
-
-          New-Item -ItemType Directory -Force -Path "site/gui/$channel" | Out-Null
-          Copy-Item "gui/scripts/install-gui.ps1" "site/gui/install.ps1"
-          Copy-Item "gui/scripts/install-gui.sh" "site/gui/install.sh"
-
-          $packages = [ordered]@{}
-          foreach ($package in Get-ChildItem "dist" -Recurse -Filter "puppetty-gui-*.zip") {
-            Copy-Item $package.FullName "site/gui/$channel/$($package.Name)"
-            $hash = (Get-FileHash "site/gui/$channel/$($package.Name)" -Algorithm SHA256).Hash.ToLowerInvariant()
-            Set-Content "site/gui/$channel/$($package.Name).sha256" -Value "$hash  $($package.Name)" -Encoding utf8
-
-            $key = $package.BaseName -replace "^puppetty-gui-", ""
-            $packages[$key] = [ordered]@{
-              package = "$channel/$($package.Name)"
-              sha256 = $hash
-            }
-          }
-
-          if ($packages.Count -eq 0) {
-            throw "No app packages were produced"
-          }
-
-          [ordered]@{
-            version = $version
-            tag = "${{ github.ref_name }}"
-            channel = $channel
-            packages = $packages
-            source = "${{ github.sha }}"
-            publishedAt = (Get-Date).ToUniversalTime().ToString("o")
-          } | ConvertTo-Json | Set-Content "site/gui/$channel.json" -Encoding utf8
-
-          # A Pages deployment replaces the entire site, so mirror the
-          # other channel's currently-published content into this
-          # deployment or it would disappear.
-          try {
-            $otherMeta = Invoke-RestMethod -Uri "$siteBase/gui/$other.json"
-            New-Item -ItemType Directory -Force -Path "site/gui/$other" | Out-Null
-            foreach ($p in $otherMeta.packages.PSObject.Properties) {
-              $rel = $p.Value.package
-              if ($rel -notmatch '^(latest|beta)/puppetty-gui-[A-Za-z0-9.-]+\.zip$') {
-                throw "unexpected package path in $other.json: $rel"
-              }
-              Invoke-WebRequest -Uri "$siteBase/gui/$rel" -OutFile "site/gui/$rel"
-              Invoke-WebRequest -Uri "$siteBase/gui/$rel.sha256" -OutFile "site/gui/$rel.sha256"
-            }
-            Invoke-WebRequest -Uri "$siteBase/gui/$other.json" -OutFile "site/gui/$other.json"
-            Write-Host "preserved existing '$other' channel"
-          } catch {
-            Write-Host "no existing '$other' channel to preserve"
-          }
-
-          @"
-          <!doctype html>
-          <title>puppetty-gui installer</title>
-          <pre>iwr -useb $siteBase/gui/install.ps1 | iex</pre>
-          <pre>curl -fsSL $siteBase/gui/install.sh | sh</pre>
-          <pre># beta channel (prereleases, opt-in):
-          `$env:PUPPETTY_CHANNEL = "beta"; iwr -useb $siteBase/gui/install.ps1 | iex
-          curl -fsSL $siteBase/gui/install.sh | CHANNEL=beta sh</pre>
-          "@ | Set-Content "site/gui/index.html" -Encoding utf8
-
-      - uses: actions/configure-pages@v6
-
-      - uses: actions/upload-pages-artifact@v4
-        with:
-          path: site
-
-      - id: deploy-pages
-        uses: actions/deploy-pages@v5
