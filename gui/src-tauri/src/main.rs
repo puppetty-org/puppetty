@@ -124,6 +124,10 @@ fn puppetty_bin() -> Result<String, String> {
             }
         }
         if let Ok(me) = std::env::current_exe() {
+            // current_exe() returns the path as executed — launching through
+            // the ~/.local/bin symlink would make the sidecar lookup search
+            // ~/.local/bin. Canonicalize back to the real install location.
+            let me = me.canonicalize().unwrap_or(me);
             if let Some(dir) = me.parent() {
                 let sidecar = dir.join(exe);
                 if sidecar.exists() {
