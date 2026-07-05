@@ -54,6 +54,11 @@ it is missing. On Linux the app needs the WebKitGTK 4.1 runtime
 absent. On macOS the app bundle installs into `~/Applications` (Apple
 Silicon only — Intel Macs are not supported).
 
+The script installs the latest stable release. Prereleases live on a
+separate beta channel and are only installed on explicit opt-in:
+`CHANNEL=beta` before `sh`, or `$env:PUPPETTY_CHANNEL = "beta"` before the
+`iwr` line on Windows.
+
 To uninstall the desktop app, use Windows **Settings ▸ Apps ▸ Installed
 apps**, select **puppetty-gui**, and choose **Uninstall**. On Linux, run
 `~/.local/share/puppetty-gui/uninstall.sh`. On macOS, move

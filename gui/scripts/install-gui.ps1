@@ -2,10 +2,18 @@ param(
   [string]$BaseUrl = "https://puppetty-org.github.io/puppetty/gui",
   [string]$InstallDir = (Join-Path $env:LOCALAPPDATA "Programs\puppetty-gui"),
   [string]$Package = "puppetty-gui-windows-x64.zip",
+  # Prereleases live on the beta channel and are never installed unless
+  # requested: -Channel beta, or $env:PUPPETTY_CHANNEL = "beta" for the
+  # `iwr | iex` one-liner (which cannot pass parameters).
+  [string]$Channel = $(if ($env:PUPPETTY_CHANNEL) { $env:PUPPETTY_CHANNEL } else { "latest" }),
   [switch]$Quiet
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($Channel -notin @("latest", "beta")) {
+  throw "unknown channel `"$Channel`" (use latest or beta)"
+}
 
 function Write-Step([string]$Message) {
   if (-not $Quiet) {
@@ -44,7 +52,7 @@ try {
   $shaPath = Join-Path $tmp "puppetty-gui.zip.sha256"
   $extractPath = Join-Path $tmp "payload"
 
-  $packageUrl = "$base/latest/$Package"
+  $packageUrl = "$base/$Channel/$Package"
   $shaUrl = "$packageUrl.sha256"
 
   Write-Step "downloading $packageUrl"
