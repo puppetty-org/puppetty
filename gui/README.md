@@ -96,6 +96,12 @@ The Pages payload contains `install.ps1`, `install.sh`, `latest.json`, and
 manual run from the Actions tab uploads the app package as a build artifact
 instead of publishing.
 
+The workflow also files a **draft GitHub Release** for the tag with the
+same zip + `.sha256` assets and auto-generated notes. Publish it after
+checking: published release assets are immutable, so they are the
+tamper-evident archive that the mutable Pages endpoint can be audited
+against.
+
 The repository must have GitHub Pages enabled with **GitHub Actions** as
 the source before the public `puppetty-org.github.io/puppetty/gui/` URL can
 serve the installer. No separate Pages branch is needed.

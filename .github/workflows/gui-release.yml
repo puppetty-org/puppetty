@@ -1,8 +1,9 @@
 name: GUI installer
 
 # Builds the Tauri desktop app and publishes a static script installer endpoint.
-# Trigger: push a tag like `gui-v0.1.0` (deploys GitHub Pages), or run
-# manually from the Actions tab (uploads app packages as build artifacts).
+# Trigger: push a tag like `gui-v0.1.0` (deploys GitHub Pages and files a
+# draft GitHub Release archiving the same packages), or run manually from
+# the Actions tab (uploads app packages as build artifacts).
 on:
   push:
     tags: ["gui-v*"]
@@ -80,6 +81,39 @@ jobs:
         with:
           name: puppetty-gui-${{ matrix.pkg }}
           path: dist/puppetty-gui-${{ matrix.pkg }}.zip
+
+  # Pages is the install endpoint but it is mutable; the draft release
+  # archives the same zip + .sha256 assets immutably (once published), so
+  # the endpoint can always be audited against a tamper-evident copy.
+  publish-release:
+    if: startsWith(github.ref, 'refs/tags/gui-v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+
+      - name: Create draft release with package assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p assets
+          find dist -name 'puppetty-gui-*.zip' -exec cp {} assets/ \;
+          cd assets
+          for f in *.zip; do
+            sha256sum "$f" > "$f.sha256"
+          done
+          version="${GITHUB_REF_NAME#gui-v}"
+          prerelease=""
+          case "$version" in *-*) prerelease="--prerelease";; esac
+          gh release create "$GITHUB_REF_NAME" ./* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            --draft $prerelease
 
   deploy-pages:
     if: startsWith(github.ref, 'refs/tags/gui-v')
