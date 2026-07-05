@@ -48,7 +48,7 @@ Windows:
 iwr -useb https://puppetty-org.github.io/puppetty/gui/install.ps1 | iex
 ```
 
-Linux:
+Linux / macOS (Apple Silicon):
 
 ```sh
 curl -fsSL https://puppetty-org.github.io/puppetty/gui/install.sh | sh
@@ -57,14 +57,16 @@ curl -fsSL https://puppetty-org.github.io/puppetty/gui/install.sh | sh
 The script installs the GUI and the Rust engine sidecar, creates the
 platform shortcut/link, and writes an uninstall script. On Windows it
 installs the WebView2 runtime if missing; on Linux the app needs the
-WebKitGTK 4.1 runtime (`libwebkit2gtk-4.1-0` on Debian/Ubuntu). No separate
-Node.js or npm install is required for the desktop app. The CLI/agent
-toolchain (`puppetty` command, MCP server) can additionally be installed
-with `npm install -g puppetty`. macOS packages are not published yet.
+WebKitGTK 4.1 runtime (`libwebkit2gtk-4.1-0` on Debian/Ubuntu); on macOS
+(Apple Silicon only) the `.app` bundle installs into `~/Applications`. No
+separate Node.js or npm install is required for the desktop app. The
+CLI/agent toolchain (`puppetty` command, MCP server) can additionally be
+installed with `npm install -g puppetty`.
 
 Uninstall from Windows **Settings ▸ Apps ▸ Installed apps** by selecting
 **puppetty-gui** and choosing **Uninstall**. On Linux, run
-`~/.local/share/puppetty-gui/uninstall.sh`.
+`~/.local/share/puppetty-gui/uninstall.sh`. On macOS, move
+`~/Applications/puppetty-gui.app` to the Trash.
 
 ## Dev
 
@@ -81,8 +83,9 @@ crate) and the Rust/Tauri toolchain.
 ## Release
 
 Pushing a tag like `gui-v0.1.0` runs the `GUI installer` GitHub Actions
-workflow: it builds the Tauri app on Windows and Linux, zips the app
-binary with the engine sidecar for each platform, and deploys the static
+workflow: it builds the Tauri app on Windows, Linux, and macOS (Apple
+Silicon), zips the app binary with the engine sidecar for each platform
+(on macOS, the whole `.app` bundle via `ditto`), and deploys the static
 install endpoint to GitHub Pages:
 
 ```powershell

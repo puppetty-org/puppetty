@@ -18,9 +18,18 @@ jobs:
           - os: windows-latest
             pkg: windows-x64
             exe: .exe
+            build: --no-bundle
           - os: ubuntu-latest
             pkg: linux-x64
             exe: ""
+            build: --no-bundle
+          # macOS ships a real .app bundle (Launchpad/Spotlight need it);
+          # the engine sidecar is embedded via externalBin. Apple Silicon
+          # only — Intel Macs are not supported.
+          - os: macos-latest
+            pkg: darwin-arm64
+            exe: ""
+            build: --bundles app
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -60,9 +69,10 @@ jobs:
 
       - name: Build app
         working-directory: gui
-        run: npx tauri build --no-bundle
+        run: npx tauri build ${{ matrix.build }}
 
-      - name: Stage app package
+      - name: Stage app package (Windows/Linux)
+        if: runner.os != 'macOS'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -75,6 +85,18 @@ jobs:
             -Path "dist/package/*" `
             -DestinationPath "dist/puppetty-gui-${{ matrix.pkg }}.zip" `
             -Force
+
+      # ditto, not Compress-Archive: the zip must preserve the executable
+      # bits and the ad-hoc code-signature structure inside the .app, or
+      # the unpacked app will not launch on Apple Silicon.
+      - name: Stage app package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist
+          test -d "gui/src-tauri/target/release/bundle/macos/puppetty-gui.app"
+          ditto -c -k --keepParent \
+            "gui/src-tauri/target/release/bundle/macos/puppetty-gui.app" \
+            "dist/puppetty-gui-${{ matrix.pkg }}.zip"
 
       - name: Upload app package artifact
         uses: actions/upload-artifact@v7

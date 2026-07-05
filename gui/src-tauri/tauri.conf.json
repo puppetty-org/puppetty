@@ -25,21 +25,15 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "nsis"
-    ],
+    "targets": [],
     "externalBin": [
       "binaries/puppetty-engine"
     ],
     "icon": [
       "icons/icon.ico",
+      "icons/icon.icns",
       "icons/icon.png"
     ],
-    "shortDescription": "The terminal as an API — controllable sessions for AI agents",
-    "windows": {
-      "nsis": {
-        "installMode": "currentUser"
-      }
-    }
+    "shortDescription": "The terminal as an API — controllable sessions for AI agents"
   }
 }

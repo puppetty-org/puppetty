@@ -40,7 +40,7 @@ Windows:
 iwr -useb https://puppetty-org.github.io/puppetty/gui/install.ps1 | iex
 ```
 
-Linux:
+Linux / macOS (Apple Silicon):
 
 ```sh
 curl -fsSL https://puppetty-org.github.io/puppetty/gui/install.sh | sh
@@ -51,11 +51,13 @@ SHA-256 checksum, installs the GUI with the bundled engine, and creates the
 platform shortcut/link. On Windows it also installs the WebView2 runtime if
 it is missing. On Linux the app needs the WebKitGTK 4.1 runtime
 (`libwebkit2gtk-4.1-0` on Debian/Ubuntu); the installer warns when it is
-absent. macOS packages are not published yet.
+absent. On macOS the app bundle installs into `~/Applications` (Apple
+Silicon only — Intel Macs are not supported).
 
 To uninstall the desktop app, use Windows **Settings ▸ Apps ▸ Installed
 apps**, select **puppetty-gui**, and choose **Uninstall**. On Linux, run
-`~/.local/share/puppetty-gui/uninstall.sh`.
+`~/.local/share/puppetty-gui/uninstall.sh`. On macOS, move
+`~/Applications/puppetty-gui.app` to the Trash.
 
 #### Run from source
 

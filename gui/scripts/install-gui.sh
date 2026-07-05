@@ -50,26 +50,38 @@ case "$os:$cpu" in
     pkg="linux-x64"
     default_dir="${HOME}/.local/share/puppetty-gui"
     ;;
+  Darwin:arm64)
+    pkg="darwin-arm64"
+    default_dir="${HOME}/Applications"
+    ;;
+  Darwin:*)
+    printf 'puppetty-gui: Intel Macs are not supported (Apple Silicon only)\n' >&2
+    exit 1
+    ;;
   *)
     printf 'puppetty-gui: unsupported platform: %s %s\n' "$os" "$cpu" >&2
     exit 1
     ;;
 esac
 
-ldconfig_bin="$(command -v ldconfig || true)"
-if [ -z "$ldconfig_bin" ] && [ -x /sbin/ldconfig ]; then
-  ldconfig_bin=/sbin/ldconfig
-fi
-if [ -n "$ldconfig_bin" ] && ! "$ldconfig_bin" -p 2>/dev/null | grep -q 'libwebkit2gtk-4\.1\.so'; then
-  printf 'puppetty-gui: warning: libwebkit2gtk-4.1 was not found; the app will not start without it\n' >&2
-  printf 'puppetty-gui: install it first (Debian/Ubuntu: sudo apt install libwebkit2gtk-4.1-0)\n' >&2
+if [ "$os" = "Linux" ]; then
+  ldconfig_bin="$(command -v ldconfig || true)"
+  if [ -z "$ldconfig_bin" ] && [ -x /sbin/ldconfig ]; then
+    ldconfig_bin=/sbin/ldconfig
+  fi
+  if [ -n "$ldconfig_bin" ] && ! "$ldconfig_bin" -p 2>/dev/null | grep -q 'libwebkit2gtk-4\.1\.so'; then
+    printf 'puppetty-gui: warning: libwebkit2gtk-4.1 was not found; the app will not start without it\n' >&2
+    printf 'puppetty-gui: install it first (Debian/Ubuntu: sudo apt install libwebkit2gtk-4.1-0)\n' >&2
+  fi
 fi
 
 if [ -z "$INSTALL_DIR" ]; then
   INSTALL_DIR="$default_dir"
 fi
 
-need_cmd unzip
+if [ "$os" = "Linux" ]; then
+  need_cmd unzip
+fi
 need_cmd awk
 need_cmd sed
 
@@ -100,28 +112,55 @@ fi
 say "installing to ${INSTALL_DIR}"
 rm -rf "${tmp}/payload"
 mkdir -p "${tmp}/payload"
-unzip -q "$package_path" -d "${tmp}/payload"
-
-if [ ! -f "${tmp}/payload/puppetty-gui" ]; then
-  printf 'puppetty-gui: package is missing puppetty-gui\n' >&2
-  exit 1
-fi
-if [ ! -f "${tmp}/payload/puppetty-engine" ]; then
-  printf 'puppetty-gui: package is missing puppetty-engine\n' >&2
-  exit 1
+if [ "$os" = "Darwin" ]; then
+  # ditto preserves the executable bits and code-signature structure that
+  # a generic unzip may not restore faithfully.
+  ditto -x -k "$package_path" "${tmp}/payload"
+else
+  unzip -q "$package_path" -d "${tmp}/payload"
 fi
 
-if [ -d "$INSTALL_DIR" ] && [ -n "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ] \
-  && [ ! -f "${INSTALL_DIR}/puppetty-gui" ]; then
-  printf 'puppetty-gui: %s is not empty and does not look like a previous puppetty-gui install\n' "$INSTALL_DIR" >&2
-  exit 1
-fi
-rm -rf "$INSTALL_DIR"
-mkdir -p "$INSTALL_DIR"
-cp -R "${tmp}/payload/." "$INSTALL_DIR/"
-chmod +x "${INSTALL_DIR}/puppetty-gui" "${INSTALL_DIR}/puppetty-engine"
+if [ "$os" = "Darwin" ]; then
+  app="puppetty-gui.app"
+  if [ ! -f "${tmp}/payload/${app}/Contents/MacOS/puppetty-gui" ]; then
+    printf 'puppetty-gui: package is missing %s\n' "$app" >&2
+    exit 1
+  fi
+  if [ ! -f "${tmp}/payload/${app}/Contents/MacOS/puppetty-engine" ]; then
+    printf 'puppetty-gui: package is missing the puppetty-engine sidecar\n' >&2
+    exit 1
+  fi
 
-cat > "${INSTALL_DIR}/uninstall.sh" <<'EOF'
+  # Install the bundle only — INSTALL_DIR (default ~/Applications) holds
+  # other apps, so never wipe the directory itself.
+  mkdir -p "$INSTALL_DIR" "${HOME}/.local/bin"
+  rm -rf "${INSTALL_DIR:?}/${app}"
+  ditto "${tmp}/payload/${app}" "${INSTALL_DIR}/${app}"
+  ln -sf "${INSTALL_DIR}/${app}/Contents/MacOS/puppetty-gui" "${HOME}/.local/bin/puppetty-gui"
+
+  say "installed ${INSTALL_DIR}/${app}"
+  say "uninstall: move ${INSTALL_DIR}/${app} to the Trash and remove ~/.local/bin/puppetty-gui"
+else
+  if [ ! -f "${tmp}/payload/puppetty-gui" ]; then
+    printf 'puppetty-gui: package is missing puppetty-gui\n' >&2
+    exit 1
+  fi
+  if [ ! -f "${tmp}/payload/puppetty-engine" ]; then
+    printf 'puppetty-gui: package is missing puppetty-engine\n' >&2
+    exit 1
+  fi
+
+  if [ -d "$INSTALL_DIR" ] && [ -n "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ] \
+    && [ ! -f "${INSTALL_DIR}/puppetty-gui" ]; then
+    printf 'puppetty-gui: %s is not empty and does not look like a previous puppetty-gui install\n' "$INSTALL_DIR" >&2
+    exit 1
+  fi
+  rm -rf "$INSTALL_DIR"
+  mkdir -p "$INSTALL_DIR"
+  cp -R "${tmp}/payload/." "$INSTALL_DIR/"
+  chmod +x "${INSTALL_DIR}/puppetty-gui" "${INSTALL_DIR}/puppetty-engine"
+
+  cat > "${INSTALL_DIR}/uninstall.sh" <<'EOF'
 #!/bin/sh
 set -eu
 install_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
@@ -129,11 +168,11 @@ rm -f "${HOME}/.local/bin/puppetty-gui"
 rm -f "${HOME}/.local/share/applications/puppetty-gui.desktop"
 rm -rf "$install_dir"
 EOF
-chmod +x "${INSTALL_DIR}/uninstall.sh"
+  chmod +x "${INSTALL_DIR}/uninstall.sh"
 
-mkdir -p "${HOME}/.local/bin" "${HOME}/.local/share/applications"
-ln -sf "${INSTALL_DIR}/puppetty-gui" "${HOME}/.local/bin/puppetty-gui"
-cat > "${HOME}/.local/share/applications/puppetty-gui.desktop" <<EOF
+  mkdir -p "${HOME}/.local/bin" "${HOME}/.local/share/applications"
+  ln -sf "${INSTALL_DIR}/puppetty-gui" "${HOME}/.local/bin/puppetty-gui"
+  cat > "${HOME}/.local/share/applications/puppetty-gui.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=puppetty-gui
@@ -142,4 +181,5 @@ Terminal=false
 Categories=Development;TerminalEmulator;
 EOF
 
-say "installed"
+  say "installed"
+fi
