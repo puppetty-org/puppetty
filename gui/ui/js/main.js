@@ -194,6 +194,12 @@ function applyAllPrefs() {
 
 // ---- custom window titlebar (frameless): controls + resize grips ----
 const IS_MAC = navigator.platform.startsWith('Mac');
+
+// Tear-off windows are launched with ?session=<name>: they attach to that
+// one session instead of reconnecting everything, and they close when their
+// last tab goes (the session itself lives in the engine either way).
+const tearSession = new URLSearchParams(location.search).get('session');
+if (tearSession) window.__sizedThisRun = true; // no first-run auto-sizing here
 if (IS_MAC) document.body.classList.add('is-mac');
 
 const appWindow = window.__TAURI__?.window?.getCurrentWindow?.();
@@ -303,6 +309,20 @@ function makeTerminal(name, command, auto) {
   };
   tab.append(label, close);
   tab.onclick = () => activate(name);
+  // Dragging a tab out of the window tears it off into its own window
+  // (only when other tabs remain — the engine session moves untouched).
+  tab.draggable = true;
+  tab.addEventListener('dragstart', (e) => {
+    dragTear = { name, bounds: null };
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', name);
+    Promise.all([appWindow?.outerPosition(), appWindow?.outerSize()])
+      .then(([p, sz]) => {
+        if (dragTear && p && sz) dragTear.bounds = { x: p.x, y: p.y, w: sz.width, h: sz.height };
+      })
+      .catch(() => {});
+  });
+  tab.addEventListener('dragend', (e) => onTabDragEnd(e, name));
   tabsEl.appendChild(tab);
   entry.tab = tab;
   entry.tabLabel = label;
@@ -422,6 +442,33 @@ async function closeSession(name) {
   }
 }
 
+let dragTear = null;
+async function onTabDragEnd(e, name) {
+  const info = dragTear;
+  dragTear = null;
+  if (!info || info.name !== name || !info.bounds) return;
+  if (sessions.size < 2) return; // never tear off the only tab
+  const s = sessions.get(name);
+  if (!s || !s.alive) return;
+  // Drop point vs window bounds, both in physical pixels (the Tauri
+  // position/size are physical; screenX/Y are CSS px).
+  const px = e.screenX * window.devicePixelRatio;
+  const py = e.screenY * window.devicePixelRatio;
+  const b = info.bounds;
+  if (px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) return; // dropped inside
+  // Detach this window's connection first so the new window's fresh attach
+  // receives the serialized screen restore (all windows share one backend).
+  await invoke('detach_session', { name }).catch(() => {});
+  removeTab(name);
+  invoke('open_session_window', {
+    name,
+    x: px,
+    y: py,
+    width: window.innerWidth,
+    height: window.innerHeight,
+  }).catch((err) => console.error('tear-off failed:', err));
+}
+
 function removeTab(name) {
   const s = sessions.get(name);
   if (!s) return;
@@ -436,12 +483,13 @@ function removeTab(name) {
     else {
       renderBanner();
       feedEl.innerHTML = '';
-      if (prefs.onLastTab === 'newShell') {
+      if (prefs.onLastTab === 'newShell' && !tearSession) {
         // Keep the app alive with a fresh shell. Guarded against a respawn storm
-        // if the shell itself dies immediately.
+        // if the shell itself dies immediately. (Torn-off windows always
+        // close on their last tab instead.)
         if (Date.now() - lastShellSpawnAt > 3000) startShell();
       } else {
-        appWindow?.close(); // no tabs left — close the whole app
+        appWindow?.close(); // no tabs left — close this window
       }
     }
   }
@@ -1367,11 +1415,22 @@ askDialog.addEventListener('close', async () => {
 
 applyAllPrefs();
 
-const existing = await invoke('list_sessions').catch(() => []);
-let opened = 0;
-for (const info of existing) {
-  if (info.alive) { await openSession(info.name); opened++; }
+// A window closing with live tabs detaches them (never kills) so the engine
+// sessions survive; other windows are unaffected.
+appWindow?.onCloseRequested?.(() => {
+  for (const name of sessions.keys()) invoke('detach_session', { name }).catch(() => {});
+});
+
+if (tearSession) {
+  // Torn-off window: attach the one session it was created for.
+  await openSession(tearSession);
+} else {
+  const existing = await invoke('list_sessions').catch(() => []);
+  let opened = 0;
+  for (const info of existing) {
+    if (info.alive) { await openSession(info.name); opened++; }
+  }
+  // Nothing to reconnect to → start a shell so the app doesn't open to an
+  // empty terminal area.
+  if (opened === 0) await startShell();
 }
-// Nothing to reconnect to → start a shell so the app doesn't open to an empty
-// terminal area.
-if (opened === 0) await startShell();

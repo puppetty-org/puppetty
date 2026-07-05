@@ -20,9 +20,15 @@ type SessionStream = NamedPipeClient;
 #[cfg(not(windows))]
 type SessionStream = tokio::net::UnixStream;
 
-type WriterMap = Arc<Mutex<HashMap<String, WriteHalf<SessionStream>>>>;
+// Writer entries carry an attach generation: every window shares this one
+// backend, so when a tab is torn off (detach here, re-attach from the new
+// window) the old connection's reader must not broadcast a "disconnected"
+// event that the new attach would misinterpret.
+type WriterMap = Arc<Mutex<HashMap<String, (u64, WriteHalf<SessionStream>)>>>;
 
 struct Writers(WriterMap);
+
+static ATTACH_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 // Mirrors engine-rs/src/protocol.rs: named pipe on Windows, Unix domain
 // socket under ~/.puppetty/run elsewhere.
@@ -403,7 +409,8 @@ async fn attach_session(
         )
         .await
         .map_err(|e| e.to_string())?;
-    state.0.lock().await.insert(name.clone(), write);
+    let generation = ATTACH_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    state.0.lock().await.insert(name.clone(), (generation, write));
 
     let writers: WriterMap = state.0.clone();
     tauri::async_runtime::spawn(async move {
@@ -413,7 +420,20 @@ async fn attach_session(
                 let _ = app.emit("session-msg", json!({"name": name, "msg": msg}));
             }
         }
-        writers.lock().await.remove(&name);
+        // Only announce the disconnect if this connection is still the
+        // registered one — a tear-off replaces it deliberately.
+        let was_current = {
+            let mut w = writers.lock().await;
+            if w.get(&name).map(|(g, _)| *g) == Some(generation) {
+                w.remove(&name);
+                true
+            } else {
+                false
+            }
+        };
+        if !was_current {
+            return;
+        }
         let _ = app.emit(
             "session-msg",
             json!({"name": name, "msg": {"event": "disconnected"}}),
@@ -424,7 +444,7 @@ async fn attach_session(
 
 async fn attached_write(state: &State<'_, Writers>, name: &str, msg: Value) -> Result<(), String> {
     let mut writers = state.0.lock().await;
-    let write = writers
+    let (_, write) = writers
         .get_mut(name)
         .ok_or_else(|| format!("not attached to \"{name}\""))?;
     write
@@ -446,6 +466,57 @@ async fn resize_session(
     rows: u16,
 ) -> Result<(), String> {
     attached_write(&state, &name, json!({"op": "resize", "cols": cols, "rows": rows})).await
+}
+
+// Drop this backend's attach connection without touching the session (the
+// engine keeps it alive). Used when a tab is torn off into a new window and
+// when a window closes with tabs still open.
+#[tauri::command]
+async fn detach_session(state: State<'_, Writers>, name: String) -> Result<(), String> {
+    state.0.lock().await.remove(&name);
+    Ok(())
+}
+
+// Tear-off target: a fresh window that attaches to one existing session.
+// Sync command so window creation runs on the main thread.
+#[tauri::command]
+fn open_session_window(
+    app: AppHandle,
+    name: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    static WINDOW_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let label = format!(
+        "tear-{}",
+        WINDOW_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
+    let query: String = name
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect();
+    let win = tauri::WebviewWindowBuilder::new(
+        &app,
+        &label,
+        tauri::WebviewUrl::App(format!("index.html?session={query}").into()),
+    )
+    .title("puppetty")
+    .decorations(false)
+    .transparent(true)
+    .inner_size(width.max(720.0), height.max(480.0))
+    .min_inner_size(720.0, 480.0)
+    .build()
+    .map_err(|e| e.to_string())?;
+    // Drop-point placement; physical pixels to match the drag coordinates.
+    let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+    Ok(())
 }
 
 #[tauri::command]
@@ -692,6 +763,8 @@ fn main() {
             write_session,
             resize_session,
             kill_session,
+            detach_session,
+            open_session_window,
             set_auto,
             check_prompt,
             read_events,
