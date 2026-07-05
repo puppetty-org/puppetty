@@ -203,6 +203,10 @@ if (tearSession) window.__sizedThisRun = true; // no first-run auto-sizing here
 if (IS_MAC) document.body.classList.add('is-mac');
 
 const appWindow = window.__TAURI__?.window?.getCurrentWindow?.();
+// Windows start hidden (anti-white-flash); the end of boot reveals them.
+// Safety net: if boot throws before reaching show(), reveal anyway rather
+// than leaving an invisible, immortal-looking app.
+setTimeout(() => appWindow?.show?.().catch(() => {}), 3000);
 if (appWindow) {
   document.getElementById('win-min').onclick = () => appWindow.minimize();
   document.getElementById('win-max').onclick = () => appWindow.toggleMaximize();
@@ -1434,3 +1438,6 @@ if (tearSession) {
   // empty terminal area.
   if (opened === 0) await startShell();
 }
+
+// UI is ready — reveal the hidden window (see the anti-white-flash note).
+appWindow?.show?.().catch(() => {});
