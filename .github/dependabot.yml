@@ -1,0 +1,12 @@
+# Keeps the SHA-pinned GitHub Actions current: Dependabot understands the
+# `owner/action@<sha> # <tag>` convention and bumps both together.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # One combined PR per week instead of one per action.
+      github-actions:
+        patterns: ["*"]
