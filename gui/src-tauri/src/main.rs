@@ -316,16 +316,35 @@ async fn list_sessions() -> Result<Vec<Value>, String> {
         Ok(e) => e,
         Err(_) => return Ok(out),
     };
+    // Probe all registered sessions concurrently: sequential 2s-timeout
+    // probes made startup latency scale with the number of registry
+    // entries (dead ones especially).
+    let mut probes = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
             continue;
         }
         let name = path.file_stem().unwrap().to_string_lossy().to_string();
-        if let Ok(info) = one_shot(&name, json!({"op": "info"}), 2_000).await {
-            if info["ok"].as_bool() == Some(true) {
-                out.push(info);
+        probes.push(tauri::async_runtime::spawn(async move {
+            let res = one_shot(&name, json!({"op": "info"}), 2_000).await;
+            (name, path, res)
+        }));
+    }
+    for probe in probes {
+        let Ok((_name, path, res)) = probe.await else {
+            continue;
+        };
+        match res {
+            Ok(info) if info["ok"].as_bool() == Some(true) => out.push(info),
+            // The endpoint is gone entirely (host crashed without cleaning
+            // its registry entry): prune it so it never slows a boot again.
+            // A timeout ("did not respond") is NOT pruned — the session may
+            // just be busy.
+            Err(e) if e.contains("cannot reach") => {
+                let _ = std::fs::remove_file(&path);
             }
+            _ => {}
         }
     }
     Ok(out)

@@ -30,6 +30,7 @@ const DEFAULT_PREFS = {
   aiCommand: 'claude -p', // CLI the rule editor pipes a prompt to for regex suggestions
   autoAnswer: false,    // default for the New-command "auto-answer prompts" toggle
   confirmKillTab: true, // ask before the tab ✕ kills a live session
+  shellCommand: '',     // new-tab shell override; empty = platform default
 };
 
 function hexToRgba(hex, a) {
@@ -563,10 +564,13 @@ async function setAutoAnswer(on) {
 // The global auto toggle lives in Settings (pref-autoanswer) — no top-bar
 // button; per-tab AUTO badges toggle individual sessions.
 
-// Platform default shell, resolved by the backend (pwsh on Windows,
-// $SHELL elsewhere) and cached.
+// Shell for new tabs: the user's configured command (whitespace-split into
+// argv), else the platform default from the backend (pwsh on Windows,
+// $SHELL elsewhere), cached.
 let defaultShellCmd = null;
 async function shellCommand() {
+  const custom = (prefs.shellCommand || '').trim();
+  if (custom) return custom.split(/\s+/);
   if (!defaultShellCmd) defaultShellCmd = await invoke('default_shell');
   return defaultShellCmd;
 }
@@ -733,6 +737,7 @@ function loadAppearanceControls() {
   document.getElementById('pref-tabpos').value = prefs.tabPos;
   document.getElementById('pref-lasttab').value = prefs.onLastTab;
   document.getElementById('pref-aicommand').value = prefs.aiCommand ?? '';
+  document.getElementById('pref-shellcmd').value = prefs.shellCommand ?? '';
   document.getElementById('pref-autoanswer').checked = prefs.autoAnswer;
   document.getElementById('pref-feed').checked = prefs.showFeed;
   document.getElementById('pref-confirmkill').checked = prefs.confirmKillTab !== false;
@@ -791,6 +796,9 @@ document.getElementById('pref-lasttab').onchange = (e) => {
 };
 document.getElementById('pref-aicommand').onchange = (e) => {
   prefs.aiCommand = e.target.value.trim(); savePrefs();
+};
+document.getElementById('pref-shellcmd').onchange = (e) => {
+  prefs.shellCommand = e.target.value.trim(); savePrefs();
 };
 document.getElementById('pref-autoanswer').onchange = (e) => {
   setAutoAnswer(e.target.checked);
