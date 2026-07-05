@@ -248,7 +248,8 @@ Severity classes decide who may answer:
 ## Credentials
 
 Secrets live in the OS keyring (Windows Credential Manager / macOS Keychain /
-the Linux kernel keyring), never in a file or log. Manage them from the CLI or the GUI
+the Secret Service on Linux — GNOME Keyring or KWallet), never in a file or
+log. Manage them from the CLI or the GUI
 Settings panel:
 
 ```powershell

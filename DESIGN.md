@@ -7,7 +7,9 @@ Status: M1–M3 done · MCP mode done · M4 (npm) done · M5 (Rust host) done ·
 > model) speaks the same JSON-lines protocol; the Node engine is gone and
 > `bin/puppetty.js` is a thin launcher shipped by npm alongside per-platform
 > `@puppetty/*` binary packages (M4). Credentials moved to the Rust
-> `keyring` crate (Credential Manager / Keychain / Linux kernel keyring).
+> `keyring` crate (Credential Manager / Keychain; on Linux, Secret Service
+> for persistence with a keyutils session cache — kernel-only storage was
+> rejected because it does not survive reboots).
 > Distribution deviates from D7/§4.3: no MSI — the GUI installs from a
 > GitHub Pages script endpoint (`install.ps1` / `install.sh`) that verifies
 > SHA-256 and bundles the engine sidecar, on Windows and Linux. Linux is
