@@ -4,7 +4,7 @@
 import { setLang, t, applyI18n } from './i18n.js';
 
 const { invoke } = window.__TAURI__.core;
-const { listen } = window.__TAURI__.event;
+const { listen, emitTo } = window.__TAURI__.event;
 
 const tabsEl = document.getElementById('tabs');
 const termsEl = document.getElementById('terms');
@@ -313,8 +313,9 @@ function makeTerminal(name, command, auto) {
   };
   tab.append(label, close);
   tab.onclick = () => activate(name);
-  // Dragging a tab out of the window tears it off into its own window
-  // (only when other tabs remain — the engine session moves untouched).
+  // Dragging a tab out of the window tears it off into its own window, or
+  // moves it into the puppetty window under the drop point (re-dock). The
+  // engine session is untouched either way.
   tab.draggable = true;
   tab.addEventListener('dragstart', (e) => {
     dragTear = { name, bounds: null };
@@ -447,11 +448,26 @@ async function closeSession(name) {
 }
 
 let dragTear = null;
+
+// Re-dock, target side: another window resolved a drop onto us by
+// coordinates and hands the session over (it detached before emitting, so
+// our attach gets the fresh screen restore).
+await listen('adopt-session', async ({ payload }) => {
+  const name = payload?.name;
+  if (!name || sessions.has(name)) return;
+  await openSession(name);
+  appWindow?.setFocus?.().catch(() => {});
+});
+
+// Cross-webview HTML5 drag events never reach the other window (verified on
+// WebView2 with both custom dataTransfer types and an event-bus handshake),
+// so drops are resolved entirely on the SOURCE side by screen coordinates:
+// inside our own window → no-op; inside another puppetty window → re-dock
+// (detach here, adopt-session there); anywhere else → tear-off.
 async function onTabDragEnd(e, name) {
   const info = dragTear;
   dragTear = null;
   if (!info || info.name !== name || !info.bounds) return;
-  if (sessions.size < 2) return; // never tear off the only tab
   const s = sessions.get(name);
   if (!s || !s.alive) return;
   // Drop point vs window bounds, both in physical pixels (the Tauri
@@ -460,6 +476,23 @@ async function onTabDragEnd(e, name) {
   const py = e.screenY * window.devicePixelRatio;
   const b = info.bounds;
   if (px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) return; // dropped inside
+
+  const target = await invoke('window_at', {
+    x: px,
+    y: py,
+    exclude: appWindow?.label ?? 'main',
+  }).catch(() => null);
+  if (target) {
+    // Unite: move the tab into the window under the drop point. Detach
+    // first so the target's attach replays the screen; if this was a torn
+    // window's last tab, removeTab closes the window.
+    await invoke('detach_session', { name }).catch(() => {});
+    removeTab(name);
+    emitTo(target, 'adopt-session', { name }).catch(() => {});
+    return;
+  }
+
+  if (sessions.size < 2) return; // never tear off the only tab
   // Detach this window's connection first so the new window's fresh attach
   // receives the serialized screen restore (all windows share one backend).
   await invoke('detach_session', { name }).catch(() => {});

@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, WriteHalf};
 #[cfg(windows)]
 use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeClient};
@@ -468,6 +468,30 @@ async fn resize_session(
     attached_write(&state, &name, json!({"op": "resize", "cols": cols, "rows": rows})).await
 }
 
+// Which app window (other than `exclude`) contains this physical screen
+// point? Used by tab drag-and-drop: cross-webview HTML5 drag events don't
+// arrive, so the SOURCE window resolves the drop target by coordinates.
+// Overlapping windows resolve in arbitrary order (z-order is not queryable).
+#[tauri::command]
+fn window_at(app: AppHandle, x: f64, y: f64, exclude: String) -> Option<String> {
+    for (label, w) in app.webview_windows() {
+        if label == exclude {
+            continue;
+        }
+        let (Ok(pos), Ok(size)) = (w.outer_position(), w.outer_size()) else {
+            continue;
+        };
+        if x >= pos.x as f64
+            && x <= (pos.x + size.width as i32) as f64
+            && y >= pos.y as f64
+            && y <= (pos.y + size.height as i32) as f64
+        {
+            return Some(label);
+        }
+    }
+    None
+}
+
 // Drop this backend's attach connection without touching the session (the
 // engine keeps it alive). Used when a tab is torn off into a new window and
 // when a window closes with tabs still open.
@@ -780,6 +804,7 @@ fn main() {
             kill_session,
             detach_session,
             open_session_window,
+            window_at,
             set_auto,
             check_prompt,
             read_events,

@@ -19,6 +19,7 @@
     "core:window:allow-start-resize-dragging",
     "core:window:allow-set-size",
     "window-state:default",
-    "core:window:allow-show"
+    "core:window:allow-show",
+    "core:window:allow-set-focus"
   ]
 }
