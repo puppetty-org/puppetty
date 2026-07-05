@@ -478,9 +478,12 @@ async fn detach_session(state: State<'_, Writers>, name: String) -> Result<(), S
 }
 
 // Tear-off target: a fresh window that attaches to one existing session.
-// Sync command so window creation runs on the main thread.
+// MUST be async: a synchronous command runs on the main thread, and webview
+// creation there deadlocks the event loop it needs to pump (frozen white
+// window, app-wide). Async commands run on a worker thread and the builder
+// dispatches to the main loop correctly.
 #[tauri::command]
-fn open_session_window(
+async fn open_session_window(
     app: AppHandle,
     name: String,
     x: f64,
@@ -510,6 +513,9 @@ fn open_session_window(
     .title("puppetty")
     .decorations(false)
     .transparent(true)
+    // Hidden until the UI is ready — the webview paints white before the
+    // app CSS loads. The frontend calls show() at the end of boot.
+    .visible(false)
     .inner_size(width.max(720.0), height.max(480.0))
     .min_inner_size(720.0, 480.0)
     .build()
@@ -754,7 +760,16 @@ fn main() {
     }
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            // Never let the plugin restore visibility: windows start hidden
+            // (anti-white-flash) and the frontend reveals them when ready.
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all()
+                        & !tauri_plugin_window_state::StateFlags::VISIBLE,
+                )
+                .build(),
+        )
         .manage(Writers(Arc::new(Mutex::new(HashMap::new()))))
         .invoke_handler(tauri::generate_handler![
             list_sessions,
