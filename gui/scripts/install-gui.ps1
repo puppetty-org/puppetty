@@ -48,6 +48,15 @@ try {
   if ($running) {
     throw "puppetty-gui is running; close it and re-run the installer"
   }
+  # The engine outlives the GUI as a detached session host, so it can hold a
+  # lock on puppetty-engine.exe after every window is closed. Catch that here,
+  # before the destructive install-dir wipe below — otherwise the wipe fails
+  # partway and leaves a corrupt half-install (a stuck, windowless ghost).
+  $engineRunning = Get-Process -Name "puppetty-engine" -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -and [System.IO.Path]::GetDirectoryName($_.Path).TrimEnd("\") -ieq $installRoot }
+  if ($engineRunning) {
+    throw "puppetty-engine is still running from $installRoot (it keeps sessions alive after the window closes). Close all puppetty windows; if it persists, run ``Stop-Process -Name puppetty-engine`` (this ends any detached sessions), then re-run the installer."
+  }
 
   $packagePath = Join-Path $tmp "puppetty-gui.zip"
   $shaPath = Join-Path $tmp "puppetty-gui.zip.sha256"
