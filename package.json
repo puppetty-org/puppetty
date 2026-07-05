@@ -1,6 +1,6 @@
 {
   "name": "puppetty",
-  "version": "0.2.0",
+  "version": "0.2.0-beta.1",
   "description": "The terminal as an API: run interactive programs in controllable PTY sessions that AI agents can drive — prompts auto-answered by policy or LLM, secrets from the OS keyring, no more hangs.",
   "type": "module",
   "bin": {
@@ -31,10 +31,10 @@
   },
   "license": "MIT",
   "optionalDependencies": {
-    "@puppetty/win32-x64": "0.2.0",
-    "@puppetty/linux-x64-gnu": "0.2.0",
-    "@puppetty/linux-arm64-gnu": "0.2.0",
-    "@puppetty/darwin-x64": "0.2.0",
-    "@puppetty/darwin-arm64": "0.2.0"
+    "@puppetty/win32-x64": "0.2.0-beta.1",
+    "@puppetty/linux-x64-gnu": "0.2.0-beta.1",
+    "@puppetty/linux-arm64-gnu": "0.2.0-beta.1",
+    "@puppetty/darwin-x64": "0.2.0-beta.1",
+    "@puppetty/darwin-arm64": "0.2.0-beta.1"
   }
 }
