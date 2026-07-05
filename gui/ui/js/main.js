@@ -421,13 +421,22 @@ async function setAutoAnswer(on) {
 // The global auto toggle lives in Settings (pref-autoanswer) — no top-bar
 // button; per-tab AUTO badges toggle individual sessions.
 
+// Platform default shell, resolved by the backend (pwsh on Windows,
+// $SHELL elsewhere) and cached.
+let defaultShellCmd = null;
+async function shellCommand() {
+  if (!defaultShellCmd) defaultShellCmd = await invoke('default_shell');
+  return defaultShellCmd;
+}
+
 let lastShellSpawnAt = 0;
 async function startShell() {
   lastShellSpawnAt = Date.now();
   try {
     const auto = prefs.autoAnswer;
-    const created = await invoke('start_session', { command: ['pwsh'], name: null, cwdOf: null, auto });
-    await openSession(created, ['pwsh'], auto);
+    const cmd = await shellCommand();
+    const created = await invoke('start_session', { command: cmd, name: null, cwdOf: null, auto });
+    await openSession(created, cmd, auto);
   } catch (err) {
     console.error('startShell failed:', err);
     alert(`failed to start a shell: ${err?.message ?? err}`);
@@ -475,7 +484,7 @@ document.getElementById('btn-companion').onclick = async () => {
   try {
     const auto = sessions.get(active)?.auto ?? prefs.autoAnswer;
     const created = await invoke('start_session', {
-      command: ['pwsh'],
+      command: await shellCommand(),
       name: null,
       cwdOf: active,
       auto,
