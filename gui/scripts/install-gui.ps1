@@ -131,12 +131,24 @@ try {
   $shortcut.IconLocation = $installedGui
   $shortcut.Save()
 
+  # Make `puppetty-gui` runnable from a terminal — parity with the Unix
+  # installs' ~/.local/bin link. User PATH only; new terminals pick it up.
+  $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+  $onPath = ($userPath -split ";") | Where-Object { $_ -and ($_.TrimEnd("\") -ieq $InstallDir.TrimEnd("\")) }
+  if (-not $onPath) {
+    [Environment]::SetEnvironmentVariable("Path", (@($userPath, $InstallDir) -join ";").Trim(";"), "User")
+  }
+
   $uninstallPath = Join-Path $InstallDir "uninstall.ps1"
   @'
 $ErrorActionPreference = "Stop"
 $installDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $shortcutPath = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\puppetty-gui.lnk"
 $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\puppetty-gui"
+
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+$newPath = (($userPath -split ";") | Where-Object { $_ -and ($_.TrimEnd("\") -ine $installDir.TrimEnd("\")) }) -join ";"
+[Environment]::SetEnvironmentVariable("Path", $newPath, "User")
 
 Remove-Item -LiteralPath $shortcutPath -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $uninstallKey -Recurse -Force -ErrorAction SilentlyContinue
