@@ -14,10 +14,9 @@ hangs waiting for input.
 npm install -g puppetty
 ```
 
-The engine is a native Rust binary — npm just delivers the one for your
-platform (Node is only needed for npm/npx itself). `puppetty` is now on your
-PATH. Optional
-pieces you can add later:
+The engine is a native Rust binary; npm delivers the one for your platform
+plus the thin Node launcher that runs it, so `puppetty` is now on your
+PATH. Optional pieces you can add later:
 
 - **Policy** — auto-answer rules in `~/.puppetty/config.json` (user) or
   `<cwd>/.puppetty/config.json` (project); see
@@ -107,6 +106,7 @@ puppetty send py "6 * 7"
 puppetty read py                  # prints the rendered screen -> 42
 puppetty keys py down down enter  # navigate TUI menus
 puppetty list
+puppetty attach py                # reattach your terminal (Ctrl+] to detach)
 puppetty kill py
 ```
 
@@ -164,8 +164,10 @@ from any language without the CLI:
 ```
 
 `wait` fields are all optional: `pattern` (+ `flags`) resolves on a screen
-match, `idleMs` on output silence (default 2000 when no pattern is given),
-`timeoutMs` caps the wait (default 60000). Child exit always resolves.
+match, `idleMs` on output silence (default 2000 when no other condition is
+given), `timeoutMs` caps the wait (default 60000). Child exit always
+resolves. Sessions also accept `attach` (a persistent bidirectional stream —
+what the GUI and `puppetty attach` use) and `set-auto`.
 
 Live sessions are registered in `~/.puppetty/sessions/*.json`.
 
@@ -246,7 +248,7 @@ Severity classes decide who may answer:
 ## Credentials
 
 Secrets live in the OS keyring (Windows Credential Manager / macOS Keychain /
-libsecret), never in a file or log. Manage them from the CLI or the GUI
+the Linux kernel keyring), never in a file or log. Manage them from the CLI or the GUI
 Settings panel:
 
 ```powershell
@@ -280,8 +282,8 @@ means "gave up on a prompt" as opposed to "completed".
 `puppetty mcp` runs an MCP server over stdio, exposing sessions as tools so an
 agent (Claude Code, etc.) drives them natively — no CLI shelling, no output
 parsing. Tools: `puppetty_start_session`, `puppetty_send`, `puppetty_keys`,
-`puppetty_read`, `puppetty_wait`, `puppetty_list`, `puppetty_kill`. Each
-returns the rendered screen as text.
+`puppetty_read`, `puppetty_wait`, `puppetty_list`, `puppetty_kill`. The
+start/read/wait tools return the rendered screen as text.
 
 Register it in Claude Code (`.mcp.json` or user config):
 
@@ -335,13 +337,12 @@ model, build integrity, and privacy notes.
 
 ## Status / roadmap
 
-Working proof of concept (tested driving live full-screen TUIs on Windows).
-Before production:
+Alpha. Everything documented above — sessions, `wait`, autopilot & policy,
+credentials, the event log, the MCP server, `attach`, and the GUI — is
+implemented and exercised against live full-screen TUIs, and CI builds and
+tests Windows and Linux. Still open before a stable release:
 
-- `attach` command (reconnect a real terminal to a detached session, tmux-style)
-- Structured event log so a supervising agent can audit every keystroke
-- MCP server mode: agents get `session_start` / `send` / `read` / `wait` as tools
-- User-defined rules file (`.puppettyrc`), credential-store references for
-  password prompts
-- macOS/Linux CI (code paths exist — named pipe vs unix socket — but only
-  Windows is tested)
+- macOS: the CLI installs via npm, but it is not CI-tested and no GUI
+  packages are published yet (needs a proper `.app` bundle flow)
+- Code signing for the GUI packages (installs are SHA-256-verified by the
+  install script, but the binaries themselves are unsigned)
