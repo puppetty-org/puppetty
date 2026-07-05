@@ -68,7 +68,11 @@ static FIRST_RUN: OnceLock<bool> = OnceLock::new();
 fn window_state_path() -> PathBuf {
     #[cfg(windows)]
     let base = PathBuf::from(std::env::var("APPDATA").unwrap_or_default());
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    let base = PathBuf::from(std::env::var("HOME").unwrap_or_default())
+        .join("Library")
+        .join("Application Support");
+    #[cfg(not(any(windows, target_os = "macos")))]
     let base = match std::env::var("XDG_CONFIG_HOME") {
         Ok(x) if !x.is_empty() => PathBuf::from(x),
         _ => PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".config"),
