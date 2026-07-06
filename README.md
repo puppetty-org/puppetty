@@ -1,12 +1,15 @@
 # puppetty
 
+> **Driving puppetty from an AI agent?** The condensed operational
+> reference is [README.ai.md](README.ai.md).
+
 **The terminal as an API.** Any interactive program becomes callable: type
 into it, read its rendered screen, wait for it to need input — over a JSON
 protocol. AI agents answer the prompts they should, known questions
 auto-answer by policy, secrets come from the OS keyring, and nothing ever
 hangs waiting for input.
 
-![puppetty auto-answering interactive prompts](https://raw.githubusercontent.com/puppetty-org/puppetty/main/docs/demo.gif)
+![Driving a detached python session with puppetty: run -d, send, read, snap, and recovering the final screen with read --last](https://raw.githubusercontent.com/puppetty-org/puppetty/main/docs/demo.gif)
 
 ## Installation
 
