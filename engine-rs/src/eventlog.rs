@@ -76,6 +76,32 @@ fn latest_cast_in(dir: &std::path::Path, name: &str) -> Option<PathBuf> {
         .max()
 }
 
+/// Replay a .cast recording into a fresh Screen sized from its header.
+pub fn replay_cast(cast: &std::path::Path) -> Result<crate::screen::Screen, String> {
+    let text = std::fs::read_to_string(cast)
+        .map_err(|e| format!("cannot read {}: {e}", cast.display()))?;
+    let mut lines = text.lines();
+    let header: Value = lines
+        .next()
+        .and_then(|l| serde_json::from_str(l).ok())
+        .unwrap_or_else(|| json!({}));
+    let mut screen = crate::screen::Screen::new(
+        header["width"].as_u64().unwrap_or(120) as u16,
+        header["height"].as_u64().unwrap_or(30) as u16,
+    );
+    for line in lines {
+        let Ok(ev) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if ev[1].as_str() == Some("o") {
+            if let Some(data) = ev[2].as_str() {
+                screen.write(data.as_bytes());
+            }
+        }
+    }
+    Ok(screen)
+}
+
 /// Exit code recorded in the .jsonl sibling of a .cast log, if the session
 /// has exited.
 pub fn exit_code_for(cast: &std::path::Path) -> Option<i64> {

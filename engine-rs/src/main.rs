@@ -3,10 +3,12 @@ mod client;
 mod credentials;
 mod decider;
 mod eventlog;
+mod export;
 mod keyexpand;
 mod mcp;
 mod policy;
 mod protocol;
+mod raster;
 mod screen;
 mod server;
 mod session;
@@ -109,15 +111,25 @@ enum Cmd {
         #[arg(long)]
         last: bool,
     },
-    /// Save a session screen as an SVG image (colors and styling included)
+    /// Save a session screen as an image (colors and styling included)
     Snap {
         name: String,
-        /// Output file (default: <name>.svg)
+        /// Output file; .svg or .png by extension (default: <name>.svg)
         #[arg(long, short = 'o')]
         out: Option<String>,
         /// Render from the newest .cast log instead of the live screen
         #[arg(long)]
         last: bool,
+    },
+    /// Render a session's recording (.cast log) to an animated GIF
+    Export {
+        name: String,
+        /// Output file (default: <name>.gif)
+        #[arg(long, short = 'o')]
+        out: Option<String>,
+        /// Max frames per second (frames also merge when nothing changed)
+        #[arg(long, default_value_t = 10.0)]
+        fps: f64,
     },
     /// Block until a condition is met, then print the screen
     Wait {
@@ -176,8 +188,8 @@ enum Cmd {
 }
 
 const SUBCOMMANDS: &[&str] = &[
-    "run", "host", "send", "keys", "read", "snap", "wait", "attach", "list", "info", "kill", "mcp",
-    "cred", "config", "help",
+    "run", "host", "send", "keys", "read", "snap", "export", "wait", "attach", "list", "info",
+    "kill", "mcp", "cred", "config", "help",
 ];
 
 /// `puppetty python` means `puppetty run python` — same implicit-run
@@ -230,6 +242,7 @@ async fn main() {
             }
         }
         Cmd::Snap { name, out, last } => cmd_snap(&name, out, last).await,
+        Cmd::Export { name, out, fps } => cmd_export(&name, out, fps),
         Cmd::Wait {
             name,
             pattern,
@@ -799,32 +812,6 @@ fn with_last_hint(name: &str, err: &str, cmd: &str) -> String {
     }
 }
 
-/// Replay a .cast recording into a fresh Screen sized from its header.
-fn replay_cast(cast: &Path) -> Result<crate::screen::Screen, String> {
-    let text = std::fs::read_to_string(cast)
-        .map_err(|e| format!("cannot read {}: {e}", cast.display()))?;
-    let mut lines = text.lines();
-    let header: Value = lines
-        .next()
-        .and_then(|l| serde_json::from_str(l).ok())
-        .unwrap_or_else(|| json!({}));
-    let mut screen = crate::screen::Screen::new(
-        header["width"].as_u64().unwrap_or(120) as u16,
-        header["height"].as_u64().unwrap_or(30) as u16,
-    );
-    for line in lines {
-        let Ok(ev) = serde_json::from_str::<Value>(line) else {
-            continue;
-        };
-        if ev[1].as_str() == Some("o") {
-            if let Some(data) = ev[2].as_str() {
-                screen.write(data.as_bytes());
-            }
-        }
-    }
-    Ok(screen)
-}
-
 /// read --last: rebuild the final screen from the newest .cast recording.
 /// Works after the session host is gone — for one-shot CLIs the final screen
 /// is the whole point.
@@ -832,7 +819,7 @@ fn cmd_read_last(name: &str, as_json: bool, scrollback: bool) -> i32 {
     let Some(cast) = crate::eventlog::latest_cast(name) else {
         return fail(&format!("no session log found for \"{name}\""));
     };
-    let screen = match replay_cast(&cast) {
+    let screen = match crate::eventlog::replay_cast(&cast) {
         Ok(s) => s,
         Err(e) => return fail(&e),
     };
@@ -869,7 +856,7 @@ async fn cmd_snap(name: &str, out: Option<String>, last: bool) -> i32 {
         let Some(cast) = crate::eventlog::latest_cast(name) else {
             return fail(&format!("no session log found for \"{name}\""));
         };
-        match replay_cast(&cast) {
+        match crate::eventlog::replay_cast(&cast) {
             // No exit event yet: still running, so the cursor is real.
             Ok(s) => (s, crate::eventlog::exit_code_for(&cast).is_none()),
             Err(e) => return fail(&e),
@@ -891,11 +878,47 @@ async fn cmd_snap(name: &str, out: Option<String>, last: bool) -> i32 {
     };
     let rendered = svg::render(&screen.styled_snapshot(), show_cursor);
     let path = out.unwrap_or_else(|| format!("{name}.svg"));
-    if let Err(e) = std::fs::write(&path, rendered) {
+    let bytes = if path.to_lowercase().ends_with(".png") {
+        match raster::svg_to_png(&rendered) {
+            Ok(b) => b,
+            Err(e) => return fail(&format!("cannot rasterize: {e}")),
+        }
+    } else {
+        rendered.into_bytes()
+    };
+    if let Err(e) = std::fs::write(&path, bytes) {
         return fail(&format!("cannot write {path}: {e}"));
     }
     println!("{path}");
     0
+}
+
+/// export: the newest .cast recording as an animated GIF.
+fn cmd_export(name: &str, out: Option<String>, fps: f64) -> i32 {
+    let Some(cast) = crate::eventlog::latest_cast(name) else {
+        return fail(&format!("no session log found for \"{name}\""));
+    };
+    let path = out.unwrap_or_else(|| format!("{name}.gif"));
+    match export::cast_to_gif(&cast, Path::new(&path), fps) {
+        Ok(stats) => {
+            println!("{path}");
+            eprintln!(
+                "[puppetty] {} frames, {}x{}, from {}",
+                stats.frames,
+                stats.width,
+                stats.height,
+                cast.display()
+            );
+            if stats.truncated {
+                eprintln!(
+                    "[puppetty] warning: recording was longer than {} frames — output truncated",
+                    stats.frames
+                );
+            }
+            0
+        }
+        Err(e) => fail(&e),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1219,6 +1242,20 @@ mod cli_tests {
         );
         // Not in SUBCOMMANDS would turn `puppetty snap x` into `run snap x`.
         assert_eq!(norm(&["puppetty", "snap", "x"])[1], "snap");
+    }
+
+    #[test]
+    fn export_parses_and_is_a_known_subcommand() {
+        let cli =
+            Cli::try_parse_from(["puppetty-engine", "export", "codex", "-o", "x.gif"]).unwrap();
+        let Cmd::Export { name, out, fps } = cli.cmd else {
+            panic!("expected export");
+        };
+        assert_eq!(
+            (name.as_str(), out.as_deref(), fps),
+            ("codex", Some("x.gif"), 10.0)
+        );
+        assert_eq!(norm(&["puppetty", "export", "x"])[1], "export");
     }
 
     #[test]

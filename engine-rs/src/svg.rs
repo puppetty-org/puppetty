@@ -61,6 +61,201 @@ fn escape_xml(text: &str) -> String {
         .replace('>', "&gt;")
 }
 
+// ---- box-drawing / block characters ----
+//
+// Fonts disagree about these glyphs (metrics, fallback, gaps between rows),
+// and TUI borders are exactly what an image snapshot must get right — so
+// they are drawn geometrically on the cell grid instead of as text.
+
+const U: u8 = 1;
+const D: u8 = 2;
+const L: u8 = 4;
+const R: u8 = 8;
+
+enum LineWeight {
+    Light,
+    Heavy,
+    Double,
+}
+
+/// Direction bits + weight for pure-weight box-drawing chars; mixed-weight
+/// hybrids (╒, ┽, …) and diagonals return None and fall back to the font.
+fn line_char(c: char) -> Option<(u8, LineWeight)> {
+    use LineWeight::*;
+    Some(match c {
+        '─' | '┄' | '┈' | '╌' => (L | R, Light),
+        '━' | '┅' | '┉' | '╍' => (L | R, Heavy),
+        '│' | '┆' | '┊' | '╎' => (U | D, Light),
+        '┃' | '┇' | '┋' | '╏' => (U | D, Heavy),
+        '┌' | '╭' => (D | R, Light),
+        '┐' | '╮' => (D | L, Light),
+        '└' | '╰' => (U | R, Light),
+        '┘' | '╯' => (U | L, Light),
+        '├' => (U | D | R, Light),
+        '┤' => (U | D | L, Light),
+        '┬' => (D | L | R, Light),
+        '┴' => (U | L | R, Light),
+        '┼' => (U | D | L | R, Light),
+        '┏' => (D | R, Heavy),
+        '┓' => (D | L, Heavy),
+        '┗' => (U | R, Heavy),
+        '┛' => (U | L, Heavy),
+        '┣' => (U | D | R, Heavy),
+        '┫' => (U | D | L, Heavy),
+        '┳' => (D | L | R, Heavy),
+        '┻' => (U | L | R, Heavy),
+        '╋' => (U | D | L | R, Heavy),
+        '═' => (L | R, Double),
+        '║' => (U | D, Double),
+        '╔' => (D | R, Double),
+        '╗' => (D | L, Double),
+        '╚' => (U | R, Double),
+        '╝' => (U | L, Double),
+        '╠' => (U | D | R, Double),
+        '╣' => (U | D | L, Double),
+        '╦' => (D | L | R, Double),
+        '╩' => (U | L | R, Double),
+        '╬' => (U | D | L | R, Double),
+        '╴' => (L, Light),
+        '╵' => (U, Light),
+        '╶' => (R, Light),
+        '╷' => (D, Light),
+        '╸' => (L, Heavy),
+        '╹' => (U, Heavy),
+        '╺' => (R, Heavy),
+        '╻' => (D, Heavy),
+        _ => return None,
+    })
+}
+
+/// Fraction of the cell a block-element char fills, anchored to a side:
+/// (left, top, width, height) in cell units, plus fill opacity for shades.
+fn block_char(c: char) -> Option<(f64, f64, f64, f64, f64)> {
+    Some(match c {
+        '█' => (0.0, 0.0, 1.0, 1.0, 1.0),
+        '▀' => (0.0, 0.0, 1.0, 0.5, 1.0),
+        '▄' => (0.0, 0.5, 1.0, 0.5, 1.0),
+        '▌' => (0.0, 0.0, 0.5, 1.0, 1.0),
+        '▐' => (0.5, 0.0, 0.5, 1.0, 1.0),
+        // Lower eighths ▁▂▃▄▅▆▇ and left eighths ▏▎▍▌▋▊▉.
+        '▁' | '▂' | '▃' | '▅' | '▆' | '▇' => {
+            let n = match c {
+                '▁' => 1.0,
+                '▂' => 2.0,
+                '▃' => 3.0,
+                '▅' => 5.0,
+                '▆' => 6.0,
+                _ => 7.0,
+            } / 8.0;
+            (0.0, 1.0 - n, 1.0, n, 1.0)
+        }
+        '▏' | '▎' | '▍' | '▋' | '▊' | '▉' => {
+            let n = match c {
+                '▏' => 1.0,
+                '▎' => 2.0,
+                '▍' => 3.0,
+                '▋' => 5.0,
+                '▊' => 6.0,
+                _ => 7.0,
+            } / 8.0;
+            (0.0, 0.0, n, 1.0, 1.0)
+        }
+        '▔' => (0.0, 0.0, 1.0, 0.125, 1.0),
+        '▕' => (0.875, 0.0, 0.125, 1.0, 1.0),
+        '░' => (0.0, 0.0, 1.0, 1.0, 0.25),
+        '▒' => (0.0, 0.0, 1.0, 1.0, 0.5),
+        '▓' => (0.0, 0.0, 1.0, 1.0, 0.75),
+        _ => return None,
+    })
+}
+
+fn is_drawn_cell(c: char) -> bool {
+    line_char(c).is_some() || block_char(c).is_some()
+}
+
+/// SVG path data for the direction bits: full lines for opposite pairs, one
+/// mitred polyline for a corner, stubs from the center otherwise (a stub's
+/// butt end is always covered by the full line crossing it).
+fn line_path_d(bits: u8, x: f64, y: f64) -> String {
+    let (cx, cy) = (x + CELL_W / 2.0, y + CELL_H / 2.0);
+    let (x2, y2) = (x + CELL_W, y + CELL_H);
+    let mut d = String::new();
+    let mut rest = bits;
+    if bits & (U | D) == (U | D) {
+        d.push_str(&format!("M{cx:.1} {y:.1}L{cx:.1} {y2:.1}"));
+        rest &= !(U | D);
+    }
+    if bits & (L | R) == (L | R) {
+        d.push_str(&format!("M{x:.1} {cy:.1}L{x2:.1} {cy:.1}"));
+        rest &= !(L | R);
+    }
+    let vertical = if rest & U != 0 {
+        Some(y)
+    } else if rest & D != 0 {
+        Some(y2)
+    } else {
+        None
+    };
+    let horizontal = if rest & L != 0 {
+        Some(x)
+    } else if rest & R != 0 {
+        Some(x2)
+    } else {
+        None
+    };
+    match (vertical, horizontal) {
+        // Corner: one polyline through the center, mitred by the renderer.
+        (Some(vy), Some(hx)) => {
+            d.push_str(&format!("M{cx:.1} {vy:.1}L{cx:.1} {cy:.1}L{hx:.1} {cy:.1}"))
+        }
+        (Some(vy), None) => d.push_str(&format!("M{cx:.1} {cy:.1}L{cx:.1} {vy:.1}")),
+        (None, Some(hx)) => d.push_str(&format!("M{cx:.1} {cy:.1}L{hx:.1} {cy:.1}")),
+        (None, None) => {}
+    }
+    d
+}
+
+/// Geometry for one drawn cell (top-left x/y), or None for font rendering.
+/// `bg` is the resolved cell background — a double line is a wide stroke
+/// with its middle struck back out in bg.
+fn cell_geometry(c: char, x: f64, y: f64, fg: &str, bg: &str, dim: bool) -> Option<String> {
+    let opacity = |base: f64| {
+        let o = if dim { base * 0.6 } else { base };
+        if o < 1.0 {
+            format!(" opacity=\"{o}\"")
+        } else {
+            String::new()
+        }
+    };
+    if let Some((bits, weight)) = line_char(c) {
+        let d = line_path_d(bits, x, y);
+        let op = opacity(1.0);
+        return Some(match weight {
+            LineWeight::Light => {
+                format!(
+                    "<path d=\"{d}\" stroke=\"{fg}\" stroke-width=\"1.5\" fill=\"none\"{op}/>\n"
+                )
+            }
+            LineWeight::Heavy => {
+                format!("<path d=\"{d}\" stroke=\"{fg}\" stroke-width=\"3\" fill=\"none\"{op}/>\n")
+            }
+            LineWeight::Double => format!(
+                "<path d=\"{d}\" stroke=\"{fg}\" stroke-width=\"5\" fill=\"none\"{op}/>\n\
+                 <path d=\"{d}\" stroke=\"{bg}\" stroke-width=\"2\" fill=\"none\"/>\n"
+            ),
+        });
+    }
+    let (bx, by, bw, bh, alpha) = block_char(c)?;
+    Some(format!(
+        "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\" fill=\"{fg}\"{}/>\n",
+        x + bx * CELL_W,
+        y + by * CELL_H,
+        bw * CELL_W,
+        bh * CELL_H,
+        opacity(alpha),
+    ))
+}
+
 /// Render the snapshot as a standalone SVG document. `cursor` draws the
 /// block cursor (pass false for exited sessions).
 pub fn render(snap: &StyledSnapshot, cursor: bool) -> String {
@@ -90,7 +285,7 @@ pub fn render(snap: &StyledSnapshot, cursor: bool) -> String {
                 None => None,
             };
 
-            if let Some(bg) = bg {
+            if let Some(bg) = &bg {
                 rects.push_str(&format!(
                     "<rect x=\"{x:.1}\" y=\"{y_top:.1}\" width=\"{w:.1}\" height=\"{CELL_H:.1}\" fill=\"{bg}\"/>\n"
                 ));
@@ -99,17 +294,15 @@ pub fn render(snap: &StyledSnapshot, cursor: bool) -> String {
                 continue;
             }
 
-            let mut attrs = format!(
-                "x=\"{x:.1}\" y=\"{y_base:.1}\" fill=\"{fg}\" textLength=\"{w:.1}\" lengthAdjust=\"spacingAndGlyphs\""
-            );
+            let mut style_attrs = String::new();
             if run.flags.contains(Flags::BOLD) {
-                attrs.push_str(" font-weight=\"bold\"");
+                style_attrs.push_str(" font-weight=\"bold\"");
             }
             if run.flags.contains(Flags::ITALIC) {
-                attrs.push_str(" font-style=\"italic\"");
+                style_attrs.push_str(" font-style=\"italic\"");
             }
             if run.flags.contains(Flags::DIM) {
-                attrs.push_str(" opacity=\"0.6\"");
+                style_attrs.push_str(" opacity=\"0.6\"");
             }
             let mut deco = Vec::new();
             if run.flags.intersects(
@@ -125,12 +318,46 @@ pub fn render(snap: &StyledSnapshot, cursor: bool) -> String {
                 deco.push("line-through");
             }
             if !deco.is_empty() {
-                attrs.push_str(&format!(" text-decoration=\"{}\"", deco.join(" ")));
+                style_attrs.push_str(&format!(" text-decoration=\"{}\"", deco.join(" ")));
             }
-            texts.push_str(&format!(
-                "<text {attrs} xml:space=\"preserve\">{}</text>\n",
-                escape_xml(&run.text)
-            ));
+
+            let text_span = |texts: &mut String, span: &str, start_cell: usize, cells: usize| {
+                if span.trim().is_empty() {
+                    return;
+                }
+                let sx = x + start_cell as f64 * CELL_W;
+                let sw = cells as f64 * CELL_W;
+                texts.push_str(&format!(
+                    "<text x=\"{sx:.1}\" y=\"{y_base:.1}\" fill=\"{fg}\" textLength=\"{sw:.1}\" \
+                     lengthAdjust=\"spacingAndGlyphs\"{style_attrs} xml:space=\"preserve\">{}</text>\n",
+                    escape_xml(span)
+                ));
+            };
+
+            // Box-drawing/block chars are drawn on the cell grid rather than
+            // as glyphs. Only safe when every char is one cell wide (drawn
+            // chars never mix with CJK in practice, so the fallback is rare).
+            let char_count = run.text.chars().count();
+            if char_count == run.width && run.text.chars().any(is_drawn_cell) {
+                let bg_or_canvas = bg.as_deref().unwrap_or(DEFAULT_BG);
+                let dim = run.flags.contains(Flags::DIM);
+                let (mut span, mut span_start) = (String::new(), 0usize);
+                for (ci, ch) in run.text.chars().enumerate() {
+                    let cell_x = x + ci as f64 * CELL_W;
+                    match cell_geometry(ch, cell_x, y_top, &fg, bg_or_canvas, dim) {
+                        Some(geo) => {
+                            text_span(&mut texts, &span, span_start, ci - span_start);
+                            span.clear();
+                            span_start = ci + 1;
+                            texts.push_str(&geo);
+                        }
+                        None => span.push(ch),
+                    }
+                }
+                text_span(&mut texts, &span, span_start, char_count - span_start);
+            } else {
+                text_span(&mut texts, &run.text, 0, run.width);
+            }
         }
     }
 
@@ -179,6 +406,29 @@ mod tests {
         assert!(svg.contains("opacity=\"0.5\""), "cursor block");
         let no_cursor = render(&s.styled_snapshot(), false);
         assert!(!no_cursor.contains("opacity=\"0.5\""));
+    }
+
+    #[test]
+    fn box_drawing_renders_as_geometry_not_glyphs() {
+        let mut s = Screen::new(20, 3);
+        s.write("┌─┐\r\n│x│\r\n╚═▓".as_bytes());
+        let svg = render(&s.styled_snapshot(), false);
+        assert!(svg.contains("<path d="), "line chars become paths");
+        assert!(
+            !svg.contains('┌') && !svg.contains('═'),
+            "no drawn char reaches a <text>"
+        );
+        assert!(
+            svg.contains("stroke-width=\"5\""),
+            "double line: wide stroke..."
+        );
+        assert!(
+            svg.contains("stroke=\"#1e1e1e\""),
+            "...struck back out in bg"
+        );
+        assert!(svg.contains("opacity=\"0.75\""), "▓ shade");
+        // The plain 'x' between pipes still renders as text, one cell wide.
+        assert!(svg.contains(">x</text>"));
     }
 
     #[test]
