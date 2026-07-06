@@ -1,5 +1,8 @@
 # puppetty
 
+> **Driving puppetty from an AI agent?** The condensed operational
+> reference is [README.ai.md](README.ai.md).
+
 **The terminal as an API.** Any interactive program becomes callable: type
 into it, read its rendered screen, wait for it to need input — over a JSON
 protocol. AI agents answer the prompts they should, known questions
