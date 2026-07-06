@@ -202,8 +202,10 @@ async fn spawn_detached(args: Vec<String>) -> Result<String, String> {
         .stderr(std::process::Stdio::piped());
     #[cfg(windows)]
     cmd.creation_flags(0x0800_0000);
-    // First stdout line only — the detached host inherits `run -d`'s stdout
-    // pipe on Windows, so waiting for EOF (output().await) hangs forever.
+    // First stdout line only: it carries the name and arrives as soon as
+    // the session is confirmed, so there is nothing to wait for. (It also
+    // guarded against the host inheriting this pipe and delaying EOF —
+    // fixed at the source in #53, but the early read costs nothing.)
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
     let stdout = child.stdout.take().ok_or("no stdout")?;
     let mut reader = tokio::io::BufReader::new(stdout);

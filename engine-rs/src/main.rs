@@ -318,6 +318,32 @@ fn command_base_name(command: &str) -> String {
         .unwrap_or_else(|| "session".into())
 }
 
+/// Mark this process's stdin/stdout/stderr handles non-inheritable, so a
+/// child spawned with bInheritHandles=TRUE cannot capture them. Rust's std
+/// gives the child its *configured* stdio via explicit (temporary,
+/// inheritable) duplicates, so the child's own stdio wiring is unaffected —
+/// this only stops the strays. Unix needs no equivalent: std sets CLOEXEC
+/// on everything by default.
+#[cfg(windows)]
+fn clear_stdio_inherit_flags() {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetStdHandle(std_handle: u32) -> isize;
+        fn SetHandleInformation(object: isize, mask: u32, flags: u32) -> i32;
+    }
+    const HANDLE_FLAG_INHERIT: u32 = 1;
+    const INVALID_HANDLE_VALUE: isize = -1;
+    // STD_INPUT_HANDLE / STD_OUTPUT_HANDLE / STD_ERROR_HANDLE
+    for slot in [-10i32 as u32, -11i32 as u32, -12i32 as u32] {
+        unsafe {
+            let h = GetStdHandle(slot);
+            if h != 0 && h != INVALID_HANDLE_VALUE {
+                SetHandleInformation(h, HANDLE_FLAG_INHERIT, 0);
+            }
+        }
+    }
+}
+
 async fn cmd_run(mut opts: RunOpts) -> i32 {
     if opts.keep && !opts.detach {
         // Attached mode already shows the final screen in your terminal.
@@ -411,6 +437,14 @@ async fn cmd_run(mut opts: RunOpts) -> i32 {
     {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0000_0008 | 0x0800_0000); // DETACHED_PROCESS | CREATE_NO_WINDOW
+                                                       // Spawning with bInheritHandles=TRUE (required to wire the host's
+                                                       // stdio) duplicates EVERY inheritable handle into the host —
+                                                       // including the stdout/stderr pipes our caller gave us. A pipeline
+                                                       // like `$n = puppetty run -d ...` then never sees EOF because the
+                                                       // long-lived host keeps the write end open (#53). Our std handles
+                                                       // are only read/written by this process, never re-inherited, so
+                                                       // drop their inherit flag before the spawn.
+        clear_stdio_inherit_flags();
     }
     #[cfg(unix)]
     {
