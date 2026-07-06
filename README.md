@@ -9,7 +9,7 @@ protocol. AI agents answer the prompts they should, known questions
 auto-answer by policy, secrets come from the OS keyring, and nothing ever
 hangs waiting for input.
 
-![puppetty auto-answering interactive prompts](https://raw.githubusercontent.com/puppetty-org/puppetty/main/docs/demo.gif)
+![Driving a detached python session with puppetty: run -d, send, read, snap, and recovering the final screen with read --last](https://raw.githubusercontent.com/puppetty-org/puppetty/main/docs/demo.gif)
 
 ## Installation
 
