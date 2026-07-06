@@ -151,6 +151,7 @@ fn tool_defs() -> Value {
                     "gone": string("Resolve when this regex is ABSENT from the screen"),
                     "stable": number("Resolve when the rendered screen is unchanged for N ms"),
                     "prompt": boolean("Resolve when the session settles on a prompt-looking line"),
+                    "quietMs": number("With prompt: screen quiet time before judging (default 700; tripled when the cursor is not at the prompt line)"),
                     "idleMs": number("Resolve after N ms of no output"),
                     "flags": string("Regex flags for waitFor/gone, e.g. \"i\""),
                     "timeoutSec": number("Give up after N seconds (default 60)"),
@@ -292,6 +293,9 @@ async fn call_tool(name: &str, args: &Value) -> Value {
                 }
                 if args["prompt"].as_bool() == Some(true) {
                     obj.insert("prompt".into(), true.into());
+                }
+                if let Some(v) = args["quietMs"].as_u64() {
+                    obj.insert("quietMs".into(), v.into());
                 }
                 if let Some(v) = args["idleMs"].as_u64() {
                     obj.insert("idleMs".into(), v.into());

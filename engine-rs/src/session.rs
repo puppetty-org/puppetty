@@ -13,7 +13,9 @@ use tokio::sync::watch;
 
 use crate::eventlog::EventLog;
 use crate::policy::{evaluate, Policy};
-use crate::protocol::{is_promptish, key_seq, meta_path, pipe_path};
+use crate::protocol::{
+    cursor_at_prompt, is_promptish, key_seq, meta_path, pipe_path, MISALIGNED_CURSOR_QUIET_FACTOR,
+};
 use crate::screen::{Screen, Snapshot};
 
 /// ConPTY needs a real executable path — resolve bare names via PATH/PATHEXT.
@@ -658,16 +660,29 @@ impl Session {
                     break "stable";
                 }
             }
-            if prompt && stable_for >= req["quietMs"].as_u64().unwrap_or(700) {
-                let line = snap
-                    .lines
-                    .iter()
-                    .rev()
-                    .find(|l| !l.trim().is_empty())
-                    .map(|l| l.trim())
-                    .unwrap_or("");
-                if !line.is_empty() && is_promptish(line) {
-                    break "prompt";
+            if prompt {
+                // Quiet screen + promptish text is necessary but not
+                // sufficient — the cursor sitting at the input point is the
+                // corroborating signal. Without it (output that merely
+                // paused, cursor at the next line's start) demand a much
+                // longer quiet period before judging.
+                let quiet = req["quietMs"].as_u64().unwrap_or(700);
+                let need = if cursor_at_prompt(&snap.lines, snap.cursor_x, snap.cursor_y) {
+                    quiet
+                } else {
+                    quiet * MISALIGNED_CURSOR_QUIET_FACTOR
+                };
+                if stable_for >= need {
+                    let line = snap
+                        .lines
+                        .iter()
+                        .rev()
+                        .find(|l| !l.trim().is_empty())
+                        .map(|l| l.trim())
+                        .unwrap_or("");
+                    if !line.is_empty() && is_promptish(line) {
+                        break "prompt";
+                    }
                 }
             }
             if let Some(ms) = idle_ms {

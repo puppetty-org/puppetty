@@ -9,7 +9,7 @@ use crate::credentials::{get_credential, list_refs};
 use crate::decider::{ask_credential_choice, ask_decider, VerdictKind};
 use crate::keyexpand::expand_input;
 use crate::policy::{evaluate, Policy};
-use crate::protocol::is_promptish;
+use crate::protocol::{cursor_at_prompt, is_promptish, MISALIGNED_CURSOR_QUIET_FACTOR};
 use crate::session::Session;
 
 const POLL_MS: u64 = 250;
@@ -125,6 +125,15 @@ pub fn attach_autopilot(session: Arc<Session>, opts: PilotOptions) -> Autopilot 
                 .map(|l| l.trim().to_string())
                 .unwrap_or_default();
             if line.is_empty() {
+                continue;
+            }
+
+            // Cursor away from the input point means the "prompt" may just
+            // be paused output — hold judgment until a much longer silence.
+            if !cursor_at_prompt(&snap.lines, snap.cursor_x, snap.cursor_y)
+                && last_data.elapsed()
+                    < Duration::from_millis(opts.quiet_ms * MISALIGNED_CURSOR_QUIET_FACTOR)
+            {
                 continue;
             }
 
