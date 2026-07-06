@@ -532,6 +532,14 @@ impl Session {
                     "alive": !self.exited.load(Ordering::SeqCst),
                     "exitCode": *self.exit_code.lock().unwrap(),
                 });
+                if req["restore"].as_bool() == Some(true) {
+                    // Repaint sequence + size: a client can rebuild the
+                    // styled screen in its own Screen (snap does).
+                    let (cols, rows) = *self.size.lock().unwrap();
+                    out["restore"] = self.screen.lock().unwrap().restore_sequence().into();
+                    out["cols"] = cols.into();
+                    out["rows"] = rows.into();
+                }
                 merge(
                     &mut out,
                     self.snapshot_value(req["scrollback"].as_bool() == Some(true)),
