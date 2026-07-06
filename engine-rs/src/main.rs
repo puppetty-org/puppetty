@@ -146,6 +146,10 @@ enum Cmd {
         /// Resolve when settled on a prompt-looking line
         #[arg(long)]
         prompt: bool,
+        /// With --prompt: screen quiet time before judging (default 700;
+        /// tripled when the cursor is not at the prompt line)
+        #[arg(long = "quiet-ms")]
+        quiet_ms: Option<u64>,
         /// Resolve when no output bytes for N ms
         #[arg(long)]
         idle: Option<u64>,
@@ -249,6 +253,7 @@ async fn main() {
             gone,
             stable,
             prompt,
+            quiet_ms,
             idle,
             timeout,
             since_start,
@@ -261,6 +266,7 @@ async fn main() {
                 gone,
                 stable,
                 prompt,
+                quiet_ms,
                 idle,
                 timeout,
                 since_start,
@@ -928,6 +934,7 @@ async fn cmd_wait(
     gone: Option<String>,
     stable: Option<u64>,
     prompt: bool,
+    quiet_ms: Option<u64>,
     idle: Option<u64>,
     timeout_secs: u64,
     since_start: bool,
@@ -952,6 +959,9 @@ async fn cmd_wait(
     }
     if prompt {
         obj.insert("prompt".into(), true.into());
+    }
+    if let Some(q) = quiet_ms {
+        obj.insert("quietMs".into(), q.into());
     }
     if let Some(i) = idle {
         obj.insert("idleMs".into(), i.into());
@@ -1265,5 +1275,26 @@ mod cli_tests {
             panic!("expected read");
         };
         assert!(last);
+    }
+
+    #[test]
+    fn wait_quiet_ms_parses() {
+        let cli = Cli::try_parse_from([
+            "puppetty-engine",
+            "wait",
+            "x",
+            "--prompt",
+            "--quiet-ms",
+            "1500",
+        ])
+        .unwrap();
+        let Cmd::Wait {
+            prompt, quiet_ms, ..
+        } = cli.cmd
+        else {
+            panic!("expected wait");
+        };
+        assert!(prompt);
+        assert_eq!(quiet_ms, Some(1500));
     }
 }
