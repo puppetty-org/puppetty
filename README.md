@@ -175,6 +175,15 @@ after the session is gone:
 puppetty read codex --last   # replays the newest recording of "codex"
 ```
 
+`snap` saves the screen as an SVG image instead of text — colors, bold,
+underline, and background runs included, exactly what a human would see.
+Text stays selectable text; no fonts are rasterized:
+
+```powershell
+puppetty snap py                        # live screen -> py.svg
+puppetty snap codex --last -o out.svg   # final screen from the recording
+```
+
 ### Control protocol
 
 Each session listens on a named pipe (`\\.\pipe\puppetty-<name>`; a Unix
@@ -185,6 +194,7 @@ from any language without the CLI:
 {"op":"send","data":"hello","enter":true}
 {"op":"keys","keys":["down","enter"]}
 {"op":"read","scrollback":false}   → {"ok":true,"alive":true,"lines":[...],"cursor":{...}}
+{"op":"read","restore":true}       → adds "restore" (ANSI repaint incl. colors), "cols", "rows"
 {"op":"wait","pattern":"● ","flags":"i","idleMs":3000,"timeoutMs":60000}
                                    → {"ok":true,"reason":"pattern","waitedMs":4137,"lines":[...]}
 {"op":"resize","cols":140,"rows":40}

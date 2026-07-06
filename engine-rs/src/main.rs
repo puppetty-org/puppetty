@@ -10,6 +10,7 @@ mod protocol;
 mod screen;
 mod server;
 mod session;
+mod svg;
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -108,6 +109,16 @@ enum Cmd {
         #[arg(long)]
         last: bool,
     },
+    /// Save a session screen as an SVG image (colors and styling included)
+    Snap {
+        name: String,
+        /// Output file (default: <name>.svg)
+        #[arg(long, short = 'o')]
+        out: Option<String>,
+        /// Render from the newest .cast log instead of the live screen
+        #[arg(long)]
+        last: bool,
+    },
     /// Block until a condition is met, then print the screen
     Wait {
         name: String,
@@ -165,8 +176,8 @@ enum Cmd {
 }
 
 const SUBCOMMANDS: &[&str] = &[
-    "run", "host", "send", "keys", "read", "wait", "attach", "list", "info", "kill", "mcp", "cred",
-    "config", "help",
+    "run", "host", "send", "keys", "read", "snap", "wait", "attach", "list", "info", "kill", "mcp",
+    "cred", "config", "help",
 ];
 
 /// `puppetty python` means `puppetty run python` — same implicit-run
@@ -218,6 +229,7 @@ async fn main() {
                 cmd_read(&name, as_json, scrollback).await
             }
         }
+        Cmd::Snap { name, out, last } => cmd_snap(&name, out, last).await,
         Cmd::Wait {
             name,
             pattern,
@@ -772,31 +784,25 @@ async fn cmd_read(name: &str, as_json: bool, scrollback: bool) -> i32 {
             0
         }
         Ok(res) => fail(res["error"].as_str().unwrap_or("read failed")),
-        Err(e) => fail(&with_last_hint(name, &e)),
+        Err(e) => fail(&with_last_hint(name, &e, "read")),
     }
 }
 
 /// A dead session still has its recording — point at it instead of leaving
-/// the user with a bare "cannot reach".
-fn with_last_hint(name: &str, err: &str) -> String {
+/// the user with a bare "cannot reach". `cmd` is the subcommand to suggest
+/// (read or snap).
+fn with_last_hint(name: &str, err: &str, cmd: &str) -> String {
     if crate::eventlog::latest_cast(name).is_some() {
-        format!("{err}\n(the session is gone; its final screen: puppetty read {name} --last)")
+        format!("{err}\n(the session is gone; its final screen: puppetty {cmd} {name} --last)")
     } else {
         err.to_string()
     }
 }
 
-/// read --last: rebuild the final screen from the newest .cast recording.
-/// Works after the session host is gone — for one-shot CLIs the final screen
-/// is the whole point.
-fn cmd_read_last(name: &str, as_json: bool, scrollback: bool) -> i32 {
-    let Some(cast) = crate::eventlog::latest_cast(name) else {
-        return fail(&format!("no session log found for \"{name}\""));
-    };
-    let text = match std::fs::read_to_string(&cast) {
-        Ok(t) => t,
-        Err(e) => return fail(&format!("cannot read {}: {e}", cast.display())),
-    };
+/// Replay a .cast recording into a fresh Screen sized from its header.
+fn replay_cast(cast: &Path) -> Result<crate::screen::Screen, String> {
+    let text = std::fs::read_to_string(cast)
+        .map_err(|e| format!("cannot read {}: {e}", cast.display()))?;
     let mut lines = text.lines();
     let header: Value = lines
         .next()
@@ -816,6 +822,20 @@ fn cmd_read_last(name: &str, as_json: bool, scrollback: bool) -> i32 {
             }
         }
     }
+    Ok(screen)
+}
+
+/// read --last: rebuild the final screen from the newest .cast recording.
+/// Works after the session host is gone — for one-shot CLIs the final screen
+/// is the whole point.
+fn cmd_read_last(name: &str, as_json: bool, scrollback: bool) -> i32 {
+    let Some(cast) = crate::eventlog::latest_cast(name) else {
+        return fail(&format!("no session log found for \"{name}\""));
+    };
+    let screen = match replay_cast(&cast) {
+        Ok(s) => s,
+        Err(e) => return fail(&e),
+    };
     let snap = screen.snapshot(scrollback);
     let exit_code = crate::eventlog::exit_code_for(&cast);
     if as_json {
@@ -839,6 +859,42 @@ fn cmd_read_last(name: &str, as_json: bool, scrollback: bool) -> i32 {
             None => eprintln!("[puppetty] no exit recorded — the session may still be live"),
         }
     }
+    0
+}
+
+/// snap: render the screen (live via the restore sequence, or --last from
+/// the newest recording) to a standalone SVG file.
+async fn cmd_snap(name: &str, out: Option<String>, last: bool) -> i32 {
+    let (screen, show_cursor) = if last {
+        let Some(cast) = crate::eventlog::latest_cast(name) else {
+            return fail(&format!("no session log found for \"{name}\""));
+        };
+        match replay_cast(&cast) {
+            // No exit event yet: still running, so the cursor is real.
+            Ok(s) => (s, crate::eventlog::exit_code_for(&cast).is_none()),
+            Err(e) => return fail(&e),
+        }
+    } else {
+        let req = json!({ "op": "read", "restore": true, "source": "cli" });
+        match client::request(name, &req, 10_000).await {
+            Ok(res) if res["ok"].as_bool() == Some(true) => {
+                let mut screen = crate::screen::Screen::new(
+                    res["cols"].as_u64().unwrap_or(120) as u16,
+                    res["rows"].as_u64().unwrap_or(30) as u16,
+                );
+                screen.write(res["restore"].as_str().unwrap_or("").as_bytes());
+                (screen, res["alive"].as_bool() == Some(true))
+            }
+            Ok(res) => return fail(res["error"].as_str().unwrap_or("snap failed")),
+            Err(e) => return fail(&with_last_hint(name, &e, "snap")),
+        }
+    };
+    let rendered = svg::render(&screen.styled_snapshot(), show_cursor);
+    let path = out.unwrap_or_else(|| format!("{name}.svg"));
+    if let Err(e) = std::fs::write(&path, rendered) {
+        return fail(&format!("cannot write {path}: {e}"));
+    }
+    println!("{path}");
     0
 }
 
@@ -896,7 +952,7 @@ async fn cmd_wait(
             i32::from(reason == "timeout")
         }
         Ok(res) => fail(res["error"].as_str().unwrap_or("wait failed")),
-        Err(e) => fail(&with_last_hint(name, &e)),
+        Err(e) => fail(&with_last_hint(name, &e, "read")),
     }
 }
 
@@ -1147,6 +1203,22 @@ mod cli_tests {
             };
             assert!(opts.keep && opts.detach);
         }
+    }
+
+    #[test]
+    fn snap_parses_and_is_a_known_subcommand() {
+        let cli =
+            Cli::try_parse_from(["puppetty-engine", "snap", "codex", "--last", "-o", "x.svg"])
+                .unwrap();
+        let Cmd::Snap { name, out, last } = cli.cmd else {
+            panic!("expected snap");
+        };
+        assert_eq!(
+            (name.as_str(), out.as_deref(), last),
+            ("codex", Some("x.svg"), true)
+        );
+        // Not in SUBCOMMANDS would turn `puppetty snap x` into `run snap x`.
+        assert_eq!(norm(&["puppetty", "snap", "x"])[1], "snap");
     }
 
     #[test]

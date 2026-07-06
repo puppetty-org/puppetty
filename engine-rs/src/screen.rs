@@ -19,6 +19,28 @@ pub struct Snapshot {
     pub cursor_y: usize,
 }
 
+/// A horizontal run of same-styled cells (the unit an image renderer draws).
+pub struct StyledRun {
+    /// Start column; `width` counts display cells, so a run with CJK text
+    /// covers more columns than it has chars.
+    pub x: usize,
+    pub width: usize,
+    pub text: String,
+    pub fg: Color,
+    pub bg: Color,
+    pub flags: Flags,
+}
+
+/// The visible viewport with styling, for rendering to an image.
+pub struct StyledSnapshot {
+    pub cols: u16,
+    pub rows: u16,
+    /// One entry per viewport row; trailing unstyled blanks are dropped.
+    pub lines: Vec<Vec<StyledRun>>,
+    pub cursor_x: usize,
+    pub cursor_y: usize,
+}
+
 #[derive(Clone, Copy)]
 struct Size {
     cols: usize,
@@ -114,6 +136,79 @@ impl Screen {
             lines,
             cursor_x: point.column.0,
             cursor_y: y.max(0) as usize,
+        }
+    }
+
+    /// The viewport as styled runs. Spacer cells of wide chars extend the
+    /// run's width instead of contributing text; trailing runs that would
+    /// draw nothing (blank text, default background, no visible flags) are
+    /// dropped.
+    pub fn styled_snapshot(&self) -> StyledSnapshot {
+        let grid = self.term.grid();
+        let cols = grid.columns();
+        let rows = grid.screen_lines();
+
+        let mut lines = Vec::with_capacity(rows);
+        for l in 0..rows as i32 {
+            let row = &grid[Line(l)];
+            let mut runs: Vec<StyledRun> = Vec::new();
+            for c in 0..cols {
+                let cell = &row[Column(c)];
+                if cell
+                    .flags
+                    .intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER)
+                {
+                    if let Some(run) = runs.last_mut() {
+                        run.width += 1;
+                    }
+                    continue;
+                }
+                let (fg, bg, flags) = style_of(cell);
+                match runs.last_mut() {
+                    Some(run)
+                        if (run.fg, run.bg, run.flags) == (fg, bg, flags)
+                            && run.x + run.width == c =>
+                    {
+                        run.text.push(cell.c);
+                        run.width += 1;
+                    }
+                    _ => runs.push(StyledRun {
+                        x: c,
+                        width: 1,
+                        text: cell.c.to_string(),
+                        fg,
+                        bg,
+                        flags,
+                    }),
+                }
+            }
+            while runs.last().is_some_and(|r| {
+                r.text.trim().is_empty()
+                    && r.bg == Color::Named(NamedColor::Background)
+                    && r.flags.is_empty()
+            }) {
+                runs.pop();
+            }
+            // The pop above removes all-blank runs; the last run can still
+            // carry the row's trailing padding inside its own text.
+            if let Some(run) = runs.last_mut() {
+                if run.bg == Color::Named(NamedColor::Background) && run.flags.is_empty() {
+                    let kept = run.text.trim_end_matches(' ').len();
+                    let removed = run.text.len() - kept; // spaces: 1 byte, 1 cell
+                    run.text.truncate(kept);
+                    run.width -= removed;
+                }
+            }
+            lines.push(runs);
+        }
+
+        let point = grid.cursor.point;
+        StyledSnapshot {
+            cols: cols as u16,
+            rows: rows as u16,
+            lines,
+            cursor_x: point.column.0,
+            cursor_y: point.line.0.max(0) as usize,
         }
     }
 
@@ -290,6 +385,41 @@ mod tests {
             }
         }
         assert_eq!(ga.cursor.point, gb.cursor.point, "cursor");
+    }
+
+    #[test]
+    fn styled_snapshot_groups_runs_and_tracks_widths() {
+        let mut s = Screen::new(20, 4);
+        s.write(b"\x1b[31mred\x1b[0mplain\r\n\x1b[1;44mB\x1b[0m \xe6\x97\xa5x");
+
+        let snap = s.styled_snapshot();
+        assert_eq!((snap.cols, snap.rows), (20, 4));
+
+        let row0 = &snap.lines[0];
+        assert_eq!(row0.len(), 2, "two style runs on row 0");
+        assert_eq!(
+            (row0[0].x, row0[0].width, row0[0].text.as_str()),
+            (0, 3, "red")
+        );
+        assert_eq!(row0[0].fg, Color::Named(NamedColor::Red));
+        assert_eq!(
+            (row0[1].x, row0[1].width, row0[1].text.as_str()),
+            (3, 5, "plain")
+        );
+        assert_eq!(row0[1].fg, Color::Named(NamedColor::Foreground));
+
+        // Bold-on-blue "B", then " 日x": the wide char widens its run.
+        let row1 = &snap.lines[1];
+        assert_eq!(row1.len(), 2);
+        assert!(row1[0].flags.contains(Flags::BOLD));
+        assert_eq!(row1[0].bg, Color::Named(NamedColor::Blue));
+        assert_eq!(
+            (row1[1].x, row1[1].width, row1[1].text.as_str()),
+            (1, 4, " 日x")
+        );
+
+        // Blank rows render as no runs at all.
+        assert!(snap.lines[2].is_empty() && snap.lines[3].is_empty());
     }
 
     /// With scrollback: history lines printed first must scroll into the
