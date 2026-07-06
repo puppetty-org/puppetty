@@ -175,13 +175,25 @@ after the session is gone:
 puppetty read codex --last   # replays the newest recording of "codex"
 ```
 
-`snap` saves the screen as an SVG image instead of text — colors, bold,
-underline, and background runs included, exactly what a human would see.
-Text stays selectable text; no fonts are rasterized:
+`snap` saves the screen as an image instead of text — colors, bold,
+underline, background runs, and box-drawn TUI borders (drawn geometrically,
+so they connect cleanly regardless of fonts), exactly what a human would
+see. `.svg` keeps text selectable; `.png` rasterizes (a monospace font is
+embedded, so it works on fontless containers too):
 
 ```powershell
 puppetty snap py                        # live screen -> py.svg
+puppetty snap py -o shot.png            # rasterized
 puppetty snap codex --last -o out.svg   # final screen from the recording
+```
+
+`export` renders a session's recording to an animated GIF — frames follow
+the recorded timing (long pauses compressed to 5s), so any past session can
+become a shareable clip after the fact:
+
+```powershell
+puppetty export codex                   # newest recording -> codex.gif
+puppetty export codex -o run.gif --fps 15
 ```
 
 ### Control protocol
@@ -321,8 +333,11 @@ means "gave up on a prompt" as opposed to "completed".
 `puppetty mcp` runs an MCP server over stdio, exposing sessions as tools so an
 agent (Claude Code, etc.) drives them natively — no CLI shelling, no output
 parsing. Tools: `puppetty_start_session`, `puppetty_send`, `puppetty_keys`,
-`puppetty_read`, `puppetty_wait`, `puppetty_list`, `puppetty_kill`. The
-start/read/wait tools return the rendered screen as text.
+`puppetty_read`, `puppetty_snap`, `puppetty_wait`, `puppetty_list`,
+`puppetty_kill`. The start/read/wait tools return the rendered screen as
+text; `puppetty_snap` returns it as a PNG image, so vision-capable agents
+can *see* TUIs — layout, colors, selection highlights — instead of reading
+flattened text.
 
 Register it in Claude Code (`.mcp.json` or user config):
 
@@ -346,9 +361,10 @@ password it must leave to a human) rather than answering it.
 Every session writes two files to `~/.puppetty/logs/` (disable: `--no-log`):
 
 - `<name>-<ts>.cast` — asciinema v2 recording of the output stream; replay
-  with `asciinema play`, or render the final screen of a finished session
-  with `puppetty read <name> --last`. Input is deliberately not recorded
-  (non-echoed secrets must never reach a log).
+  with `asciinema play`, render the final screen of a finished session with
+  `puppetty read <name> --last`, or turn it into an animated GIF with
+  `puppetty export <name>`. Input is deliberately not recorded (non-echoed
+  secrets must never reach a log).
 - `<name>-<ts>.jsonl` — structured control events with source attribution:
   `start`, `send`/`keys` (with text, from `cli`/`pipe`), `stdin` (byte counts
   only — a human may be typing a secret), `answer`/`cancel` (from

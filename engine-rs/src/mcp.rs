@@ -139,6 +139,19 @@ fn tool_defs() -> Value {
             },
         },
         {
+            "name": "puppetty_snap",
+            "title": "Screenshot a session as an image",
+            "description": "Render the session's screen to a PNG image — colors, layout, and styling exactly as a human sees them. Use instead of puppetty_read when visual layout matters (TUIs, menus, editors, charts). Set last=true to render the final screen of a session that already exited, from its recording.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": string("Session name"),
+                    "last": boolean("Render from the newest recording instead of the live screen (works after the session is gone)"),
+                },
+                "required": ["name"],
+            },
+        },
+        {
             "name": "puppetty_wait",
             "title": "Wait for a session condition",
             "description": "Block until a condition is met, then return the screen. Combine conditions; the first met wins (child exit and timeout always apply). Recommended: after puppetty_send, use waitFor a known output, or gone=\"esc to interrupt\" for agent TUIs, or prompt=true to detect that the session is blocked waiting for input. Avoids fixed sleeps.",
@@ -270,6 +283,38 @@ async fn call_tool(name: &str, args: &Value) -> Value {
                 )
                 .await?;
                 Ok(screen_result(&res))
+            }
+            "puppetty_snap" => {
+                let name = args["name"].as_str().unwrap_or("");
+                let (screen, show_cursor) = if args["last"].as_bool() == Some(true) {
+                    let cast = crate::eventlog::latest_cast(name)
+                        .ok_or_else(|| format!("no session log found for \"{name}\""))?;
+                    let screen = crate::eventlog::replay_cast(&cast)?;
+                    // No exit event recorded → still running, cursor is real.
+                    (screen, crate::eventlog::exit_code_for(&cast).is_none())
+                } else {
+                    let res = req(
+                        name,
+                        json!({ "op": "read", "restore": true, "source": "mcp" }),
+                        5_000,
+                    )
+                    .await?;
+                    let mut screen = crate::screen::Screen::new(
+                        res["cols"].as_u64().unwrap_or(120) as u16,
+                        res["rows"].as_u64().unwrap_or(30) as u16,
+                    );
+                    screen.write(res["restore"].as_str().unwrap_or("").as_bytes());
+                    (screen, res["alive"].as_bool() == Some(true))
+                };
+                let png = crate::raster::svg_to_png(&crate::svg::render(
+                    &screen.styled_snapshot(),
+                    show_cursor,
+                ))?;
+                use base64::Engine as _;
+                let data = base64::engine::general_purpose::STANDARD.encode(png);
+                Ok(json!({
+                    "content": [{ "type": "image", "data": data, "mimeType": "image/png" }]
+                }))
             }
             "puppetty_wait" => {
                 let timeout_ms = (args["timeoutSec"].as_f64().unwrap_or(60.0) * 1000.0) as u64;
