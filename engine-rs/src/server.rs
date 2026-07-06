@@ -147,6 +147,7 @@ mod tests {
             rows: 24,
             cwd: ".".into(),
             exit_grace: Duration::from_millis(100),
+            keep: false,
             logger: None,
             policy: None,
         })
