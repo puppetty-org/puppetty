@@ -157,6 +157,24 @@ The driving agent has full context; the engine only detects the block.
 Keys: enter, tab, esc, space, backspace, up, down, right, left, home, end,
 pageup, pagedown, ctrl-c, ctrl-d, ctrl-z.
 
+When the child exits, a detached session stays readable for ~3 more seconds,
+then the session is gone. For one-shot commands whose final screen is the
+whole point (`codex exec ...`, a test run), either keep the session around:
+
+```powershell
+puppetty run -d --keep -- codex exec "review this diff"   # or --linger
+puppetty wait codex --timeout 600
+puppetty read codex        # still there, however long you took
+puppetty kill codex        # release it when done
+```
+
+or recover the final screen afterwards from the session log — works even
+after the session is gone:
+
+```powershell
+puppetty read codex --last   # replays the newest recording of "codex"
+```
+
 ### Control protocol
 
 Each session listens on a named pipe (`\\.\pipe\puppetty-<name>`; a Unix
@@ -318,8 +336,9 @@ password it must leave to a human) rather than answering it.
 Every session writes two files to `~/.puppetty/logs/` (disable: `--no-log`):
 
 - `<name>-<ts>.cast` — asciinema v2 recording of the output stream; replay
-  with `asciinema play`. Input is deliberately not recorded (non-echoed
-  secrets must never reach a log).
+  with `asciinema play`, or render the final screen of a finished session
+  with `puppetty read <name> --last`. Input is deliberately not recorded
+  (non-echoed secrets must never reach a log).
 - `<name>-<ts>.jsonl` — structured control events with source attribution:
   `start`, `send`/`keys` (with text, from `cli`/`pipe`), `stdin` (byte counts
   only — a human may be typing a secret), `answer`/`cancel` (from

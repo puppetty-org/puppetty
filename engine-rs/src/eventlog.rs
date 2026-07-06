@@ -51,6 +51,45 @@ pub fn prune(dir: &PathBuf, logging: &Logging) {
     }
 }
 
+/// Newest .cast log for a session (read --last). The timestamp in the file
+/// name sorts lexicographically, so the max name is the newest recording;
+/// the pattern is anchored so session "codex" never matches "codex-2"'s logs.
+pub fn latest_cast(name: &str) -> Option<PathBuf> {
+    latest_cast_in(&logs_dir(), name)
+}
+
+fn latest_cast_in(dir: &std::path::Path, name: &str) -> Option<PathBuf> {
+    let re = regex::Regex::new(&format!(
+        r"^{}-\d{{4}}-\d{{2}}-\d{{2}}T\d{{2}}-\d{{2}}-\d{{2}}-\d{{3}}Z\.cast$",
+        regex::escape(name)
+    ))
+    .ok()?;
+    std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| re.is_match(n))
+        })
+        .max()
+}
+
+/// Exit code recorded in the .jsonl sibling of a .cast log, if the session
+/// has exited.
+pub fn exit_code_for(cast: &std::path::Path) -> Option<i64> {
+    let text = std::fs::read_to_string(cast.with_extension("jsonl")).ok()?;
+    text.lines().rev().find_map(|line| {
+        let ev = serde_json::from_str::<Value>(line).ok()?;
+        if ev["type"].as_str() == Some("exit") {
+            ev["exitCode"].as_i64()
+        } else {
+            None
+        }
+    })
+}
+
 pub struct EventLog {
     t0: Instant,
     cast: Mutex<File>,
@@ -123,5 +162,36 @@ impl EventLog {
 
     pub fn close(&self, exit_code: i32) {
         self.event("exit", json!({ "exitCode": exit_code }));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::latest_cast_in;
+
+    #[test]
+    fn latest_cast_matches_exact_session_name_and_picks_newest() {
+        let dir = std::env::temp_dir().join(format!("puppetty-cast-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in [
+            "codex-2026-07-06T01-00-00-000Z.cast",
+            "codex-2026-07-06T02-00-00-000Z.cast",
+            "codex-2-2026-07-06T03-00-00-000Z.cast", // session "codex-2", not "codex"
+            "codex-2026-07-06T02-00-00-000Z.jsonl",  // sibling, not a .cast
+        ] {
+            std::fs::write(dir.join(f), "").unwrap();
+        }
+        let hit = latest_cast_in(&dir, "codex").unwrap();
+        assert_eq!(
+            hit.file_name().unwrap().to_str().unwrap(),
+            "codex-2026-07-06T02-00-00-000Z.cast"
+        );
+        let hit2 = latest_cast_in(&dir, "codex-2").unwrap();
+        assert_eq!(
+            hit2.file_name().unwrap().to_str().unwrap(),
+            "codex-2-2026-07-06T03-00-00-000Z.cast"
+        );
+        assert!(latest_cast_in(&dir, "nosuch").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -67,6 +67,10 @@ struct RunOpts {
     /// Disable the session event log (.cast/.jsonl)
     #[arg(long = "no-log")]
     no_log: bool,
+    /// Keep the session readable after the child exits, until `puppetty
+    /// kill` (detached only; without it the host stops ~3s after exit)
+    #[arg(long, visible_alias = "linger")]
+    keep: bool,
     #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
     command: Vec<String>,
 }
@@ -99,6 +103,10 @@ enum Cmd {
         json: bool,
         #[arg(long)]
         scrollback: bool,
+        /// Replay the session's newest .cast log instead of the live screen
+        /// (recovers the final screen after the session is gone)
+        #[arg(long)]
+        last: bool,
     },
     /// Block until a condition is met, then print the screen
     Wait {
@@ -161,11 +169,9 @@ const SUBCOMMANDS: &[&str] = &[
     "config", "help",
 ];
 
-#[tokio::main]
-async fn main() {
-    // `puppetty python` means `puppetty run python` — same implicit-run
-    // convention as the Node CLI.
-    let mut argv: Vec<String> = std::env::args().collect();
+/// `puppetty python` means `puppetty run python` — same implicit-run
+/// convention as the Node CLI.
+fn normalize_argv(mut argv: Vec<String>) -> Vec<String> {
     if let Some(first) = argv.get(1) {
         let looks_like_flag = first.starts_with('-');
         let known = SUBCOMMANDS.contains(&first.as_str())
@@ -174,6 +180,12 @@ async fn main() {
             argv.insert(1, "run".into());
         }
     }
+    argv
+}
+
+#[tokio::main]
+async fn main() {
+    let argv = normalize_argv(std::env::args().collect());
     let cli = Cli::parse_from(argv);
     let code = match cli.cmd {
         Cmd::Run(opts) => cmd_run(opts).await,
@@ -198,7 +210,14 @@ async fn main() {
             name,
             json: as_json,
             scrollback,
-        } => cmd_read(&name, as_json, scrollback).await,
+            last,
+        } => {
+            if last {
+                cmd_read_last(&name, as_json, scrollback)
+            } else {
+                cmd_read(&name, as_json, scrollback).await
+            }
+        }
         Cmd::Wait {
             name,
             pattern,
@@ -269,6 +288,10 @@ fn command_base_name(command: &str) -> String {
 }
 
 async fn cmd_run(mut opts: RunOpts) -> i32 {
+    if opts.keep && !opts.detach {
+        // Attached mode already shows the final screen in your terminal.
+        return fail("--keep only makes sense with -d/--detach");
+    }
     // Resolve cwd (cwd-of wins), then the session name, then dispatch.
     let cwd = if let Some(target) = &opts.cwd_of {
         match client::request(target, &json!({ "op": "info" }), 5_000).await {
@@ -337,10 +360,22 @@ async fn cmd_run(mut opts: RunOpts) -> i32 {
     if opts.no_log {
         cmd.arg("--no-log");
     }
+    if opts.keep {
+        cmd.arg("--keep");
+    }
     cmd.arg("--").args(&opts.command);
+    // Host stderr goes to a scratch file so a startup failure can be
+    // reported with its actual cause instead of a bare "failed to start".
+    let err_path = std::env::temp_dir().join(format!(
+        "puppetty-host-{name}-{}.stderr",
+        std::process::id()
+    ));
     cmd.stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
+        .stdout(std::process::Stdio::null());
+    match std::fs::File::create(&err_path) {
+        Ok(f) => cmd.stderr(f),
+        Err(_) => cmd.stderr(std::process::Stdio::null()),
+    };
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -351,24 +386,45 @@ async fn cmd_run(mut opts: RunOpts) -> i32 {
         use std::os::unix::process::CommandExt;
         cmd.process_group(0); // survive the parent's terminal/signals
     }
-    if let Err(e) = cmd.spawn() {
-        return fail(&e.to_string());
-    }
+    let mut host = match cmd.spawn() {
+        Ok(h) => h,
+        Err(e) => {
+            let _ = std::fs::remove_file(&err_path);
+            return fail(&e.to_string());
+        }
+    };
+    let mut host_died = false;
     for _ in 0..100 {
         if meta_path(&name).exists()
             && client::request(&name, &json!({ "op": "info" }), 1_000)
                 .await
                 .is_ok()
         {
+            let _ = std::fs::remove_file(&err_path);
             println!("{name}");
             eprintln!(
                 "[puppetty] detached session \"{name}\" started — read: puppetty read {name}"
             );
             return 0;
         }
+        if host_died {
+            break;
+        }
+        // The host exiting this early means startup failed — one more loop
+        // iteration to close any lost race with its registry write, then
+        // report instead of polling out the full 10s.
+        host_died = matches!(host.try_wait(), Ok(Some(_)));
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    fail(&format!("detached session \"{name}\" failed to start"))
+    let mut msg = format!("detached session \"{name}\" failed to start");
+    if let Ok(err_out) = std::fs::read_to_string(&err_path) {
+        let err_out = err_out.trim();
+        if !err_out.is_empty() {
+            msg.push_str(&format!("\n{err_out}"));
+        }
+    }
+    let _ = std::fs::remove_file(&err_path);
+    fail(&msg)
 }
 
 async fn host_main(opts: RunOpts, attached: bool) -> i32 {
@@ -404,6 +460,7 @@ async fn host_main(opts: RunOpts, attached: bool) -> i32 {
         rows,
         cwd,
         exit_grace: Duration::from_millis(if attached { 100 } else { 3_000 }),
+        keep: opts.keep,
         logger,
         policy: Some(policy.clone()),
     }) {
@@ -715,8 +772,74 @@ async fn cmd_read(name: &str, as_json: bool, scrollback: bool) -> i32 {
             0
         }
         Ok(res) => fail(res["error"].as_str().unwrap_or("read failed")),
-        Err(e) => fail(&e),
+        Err(e) => fail(&with_last_hint(name, &e)),
     }
+}
+
+/// A dead session still has its recording — point at it instead of leaving
+/// the user with a bare "cannot reach".
+fn with_last_hint(name: &str, err: &str) -> String {
+    if crate::eventlog::latest_cast(name).is_some() {
+        format!("{err}\n(the session is gone; its final screen: puppetty read {name} --last)")
+    } else {
+        err.to_string()
+    }
+}
+
+/// read --last: rebuild the final screen from the newest .cast recording.
+/// Works after the session host is gone — for one-shot CLIs the final screen
+/// is the whole point.
+fn cmd_read_last(name: &str, as_json: bool, scrollback: bool) -> i32 {
+    let Some(cast) = crate::eventlog::latest_cast(name) else {
+        return fail(&format!("no session log found for \"{name}\""));
+    };
+    let text = match std::fs::read_to_string(&cast) {
+        Ok(t) => t,
+        Err(e) => return fail(&format!("cannot read {}: {e}", cast.display())),
+    };
+    let mut lines = text.lines();
+    let header: Value = lines
+        .next()
+        .and_then(|l| serde_json::from_str(l).ok())
+        .unwrap_or_else(|| json!({}));
+    let mut screen = crate::screen::Screen::new(
+        header["width"].as_u64().unwrap_or(120) as u16,
+        header["height"].as_u64().unwrap_or(30) as u16,
+    );
+    for line in lines {
+        let Ok(ev) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if ev[1].as_str() == Some("o") {
+            if let Some(data) = ev[2].as_str() {
+                screen.write(data.as_bytes());
+            }
+        }
+    }
+    let snap = screen.snapshot(scrollback);
+    let exit_code = crate::eventlog::exit_code_for(&cast);
+    if as_json {
+        let out = json!({
+            "ok": true,
+            "source": "log",
+            "logFile": cast.to_string_lossy(),
+            "alive": false,
+            "exitCode": exit_code,
+            "lines": snap.lines,
+            "cursor": { "x": snap.cursor_x, "y": snap.cursor_y },
+        });
+        println!("{}", serde_json::to_string_pretty(&out).unwrap());
+    } else {
+        for line in &snap.lines {
+            println!("{line}");
+        }
+        eprintln!("[puppetty] replayed from {}", cast.display());
+        match exit_code {
+            Some(code) => eprintln!("[puppetty] process exited (code {code})"),
+            None => eprintln!("[puppetty] no exit recorded — the session may still be live"),
+        }
+    }
+    0
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -773,7 +896,7 @@ async fn cmd_wait(
             i32::from(reason == "timeout")
         }
         Ok(res) => fail(res["error"].as_str().unwrap_or("wait failed")),
-        Err(e) => fail(&e),
+        Err(e) => fail(&with_last_hint(name, &e)),
     }
 }
 
@@ -978,5 +1101,60 @@ async fn cmd_config(action: &str) -> i32 {
             }
         }
         _ => fail("usage: puppetty config show|validate"),
+    }
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+
+    fn norm(args: &[&str]) -> Vec<String> {
+        normalize_argv(args.iter().map(|s| s.to_string()).collect())
+    }
+
+    /// v0.2.0 feedback: `run --help` must show help, not be swallowed by the
+    /// trailing command capture.
+    #[test]
+    fn run_help_is_recognized() {
+        for args in [
+            ["puppetty-engine", "run", "--help"].as_slice(),
+            ["puppetty-engine", "--help"].as_slice(),
+        ] {
+            match Cli::try_parse_from(args.iter().copied()) {
+                Err(e) => assert_eq!(e.kind(), clap::error::ErrorKind::DisplayHelp),
+                Ok(_) => panic!("--help did not trigger help for {args:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn implicit_run_inserts_only_for_unknown_commands() {
+        assert_eq!(norm(&["puppetty", "python"])[1], "run");
+        assert_eq!(norm(&["puppetty", "-d", "python"])[1], "run");
+        assert_eq!(norm(&["puppetty", "run", "python"])[1], "run");
+        assert_eq!(norm(&["puppetty", "read", "x"])[1], "read");
+        assert_eq!(norm(&["puppetty", "--help"])[1], "--help");
+        assert_eq!(norm(&["puppetty", "-V"])[1], "-V");
+    }
+
+    #[test]
+    fn keep_and_linger_parse() {
+        for flag in ["--keep", "--linger"] {
+            let cli =
+                Cli::try_parse_from(["puppetty-engine", "run", "-d", flag, "--", "codex"]).unwrap();
+            let Cmd::Run(opts) = cli.cmd else {
+                panic!("expected run");
+            };
+            assert!(opts.keep && opts.detach);
+        }
+    }
+
+    #[test]
+    fn read_last_parses() {
+        let cli = Cli::try_parse_from(["puppetty-engine", "read", "codex", "--last"]).unwrap();
+        let Cmd::Read { last, .. } = cli.cmd else {
+            panic!("expected read");
+        };
+        assert!(last);
     }
 }

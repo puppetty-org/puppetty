@@ -22,17 +22,40 @@ pub fn resolve_executable(cmd: &str) -> String {
     if cmd.contains('/') || cmd.contains('\\') {
         return cmd.to_string();
     }
+    let path = std::env::var("PATH").unwrap_or_default();
     let exts = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
-    let dirs = std::env::var("PATH").unwrap_or_default();
-    for dir in dirs.split(';').filter(|d| !d.is_empty()) {
-        for ext in std::iter::once(String::new()).chain(exts.split(';').map(|e| e.to_lowercase())) {
+    resolve_in_path(cmd, &path, &exts).unwrap_or_else(|| cmd.to_string())
+}
+
+/// PATH search honoring PATHEXT. A name without an executable extension is
+/// never accepted as-is: npm installs a POSIX sh shim (`codex`) next to the
+/// real `codex.cmd`, and CreateProcess cannot run the former — matching it
+/// used to shadow the .cmd and break the spawn.
+#[cfg(windows)]
+fn resolve_in_path(cmd: &str, path: &str, pathext: &str) -> Option<String> {
+    let exts: Vec<String> = pathext
+        .split(';')
+        .filter(|e| !e.is_empty())
+        .map(|e| e.to_lowercase())
+        .collect();
+    let lower = cmd.to_lowercase();
+    let runnable_as_is =
+        exts.iter().any(|e| lower.ends_with(e.as_str())) || lower.ends_with(".ps1");
+    for dir in path.split(';').filter(|d| !d.is_empty()) {
+        if runnable_as_is {
+            let full = Path::new(dir).join(cmd);
+            if full.is_file() {
+                return Some(full.to_string_lossy().into_owned());
+            }
+        }
+        for ext in &exts {
             let full = Path::new(dir).join(format!("{cmd}{ext}"));
             if full.is_file() {
-                return full.to_string_lossy().into_owned();
+                return Some(full.to_string_lossy().into_owned());
             }
         }
     }
-    cmd.to_string()
+    None
 }
 
 #[cfg(not(windows))]
@@ -82,6 +105,9 @@ pub struct SpawnOptions {
     /// Grace period between child exit and host shutdown (clients get a
     /// window to read the final screen; the Node engine uses 3s detached).
     pub exit_grace: Duration,
+    /// Linger after the child exits (run --keep): the final screen stays
+    /// readable until an explicit kill releases the session.
+    pub keep: bool,
     pub logger: Option<Arc<EventLog>>,
     /// Used to classify prompts for read/wait clients.
     pub policy: Option<Arc<Policy>>,
@@ -97,6 +123,8 @@ pub struct Session {
     pub pid: u32,
     pub exited: AtomicBool,
     pub exit_code: Mutex<Option<i32>>,
+    /// A kill was requested — a lingering (--keep) session must not outlive it.
+    released: AtomicBool,
     size: Mutex<(u16, u16)>,
     screen: Mutex<Screen>,
     writer: Mutex<Box<dyn Write + Send>>,
@@ -153,6 +181,7 @@ impl Session {
             pid,
             exited: AtomicBool::new(false),
             exit_code: Mutex::new(None),
+            released: AtomicBool::new(false),
             size: Mutex::new((opts.cols, opts.rows)),
             screen: Mutex::new(Screen::new(opts.cols, opts.rows)),
             writer: Mutex::new(writer),
@@ -208,6 +237,7 @@ impl Session {
         });
         let s = session.clone();
         let grace = opts.exit_grace;
+        let keep = opts.keep;
         tokio::spawn(async move {
             let code = exit_rx.await.unwrap_or(-1);
             s.exited.store(true, Ordering::SeqCst);
@@ -215,6 +245,10 @@ impl Session {
             s.broadcast(json!({ "event": "exit", "exitCode": code }));
             if let Some(logger) = &s.logger {
                 logger.close(code);
+            }
+            if keep && !s.released.load(Ordering::SeqCst) {
+                // --keep: linger with the final screen; kill() releases us.
+                return;
             }
             tokio::time::sleep(grace).await;
             let _ = std::fs::remove_file(meta_path(&s.name));
@@ -344,7 +378,11 @@ impl Session {
     }
 
     pub fn kill(self: &Arc<Self>) {
+        self.released.store(true, Ordering::SeqCst);
         if self.exited.load(Ordering::SeqCst) {
+            // Child already gone: release a lingering (--keep) host.
+            let _ = std::fs::remove_file(meta_path(&self.name));
+            let _ = self.shutdown.send(true);
             return;
         }
         #[cfg(windows)]
@@ -702,6 +740,66 @@ fn merge(into: &mut Value, from: Value) {
 }
 
 #[cfg(test)]
+#[cfg(windows)]
+mod resolve_tests {
+    use super::resolve_in_path;
+
+    const PATHEXT: &str = ".COM;.EXE;.BAT;.CMD";
+
+    fn fixture_dir(tag: &str, files: &[&str]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "puppetty-resolve-test-{}-{tag}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in files {
+            std::fs::write(dir.join(f), "").unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn bare_name_skips_the_posix_shim_and_finds_the_cmd() {
+        // npm installs `codex` (sh script) next to `codex.cmd`; CreateProcess
+        // can only run the latter.
+        let dir = fixture_dir("shim", &["codex", "codex.cmd", "codex.ps1"]);
+        let path = dir.to_string_lossy().into_owned();
+        let hit = resolve_in_path("codex", &path, PATHEXT).unwrap();
+        assert!(hit.to_lowercase().ends_with("codex.cmd"), "got {hit}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn bare_name_with_only_a_posix_shim_resolves_nothing() {
+        let dir = fixture_dir("onlyshim", &["onlyshim"]);
+        let path = dir.to_string_lossy().into_owned();
+        assert_eq!(resolve_in_path("onlyshim", &path, PATHEXT), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn explicit_extension_still_matches_as_is() {
+        let dir = fixture_dir("asis", &["tool.exe", "script.ps1"]);
+        let path = dir.to_string_lossy().into_owned();
+        let exe = resolve_in_path("tool.exe", &path, PATHEXT).unwrap();
+        assert!(exe.to_lowercase().ends_with("tool.exe"), "got {exe}");
+        // .ps1 is not in PATHEXT but wrap_batch_script can run it.
+        let ps1 = resolve_in_path("script.ps1", &path, PATHEXT).unwrap();
+        assert!(ps1.to_lowercase().ends_with("script.ps1"), "got {ps1}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn pathext_order_is_respected() {
+        let dir = fixture_dir("order", &["dup.cmd", "dup.exe"]);
+        let path = dir.to_string_lossy().into_owned();
+        let hit = resolve_in_path("dup", &path, PATHEXT).unwrap();
+        assert!(hit.to_lowercase().ends_with("dup.exe"), "got {hit}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -728,6 +826,7 @@ mod tests {
             rows: 24,
             cwd: ".".into(),
             exit_grace: Duration::from_millis(100),
+            keep: false,
             logger: None,
             policy: None,
         })
