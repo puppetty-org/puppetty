@@ -1213,7 +1213,10 @@ mod cli_tests {
         let Cmd::Snap { name, out, last } = cli.cmd else {
             panic!("expected snap");
         };
-        assert_eq!((name.as_str(), out.as_deref(), last), ("codex", Some("x.svg"), true));
+        assert_eq!(
+            (name.as_str(), out.as_deref(), last),
+            ("codex", Some("x.svg"), true)
+        );
         // Not in SUBCOMMANDS would turn `puppetty snap x` into `run snap x`.
         assert_eq!(norm(&["puppetty", "snap", "x"])[1], "snap");
     }

@@ -82,9 +82,8 @@ pub fn render(snap: &StyledSnapshot, cursor: bool) -> String {
             } else {
                 (&run.fg, &run.bg)
             };
-            let fg = hex(fg_role).unwrap_or_else(|| {
-                (if inverse { DEFAULT_BG } else { DEFAULT_FG }).to_string()
-            });
+            let fg = hex(fg_role)
+                .unwrap_or_else(|| (if inverse { DEFAULT_BG } else { DEFAULT_FG }).to_string());
             let bg = match hex(bg_role) {
                 Some(c) => Some(c),
                 None if inverse => Some(DEFAULT_FG.to_string()),
@@ -171,7 +170,10 @@ mod tests {
         assert!(svg.contains("font-weight=\"bold\""));
         assert!(svg.contains("text-decoration=\"underline\""));
         // Inverse: default-fg text on default-fg background rect.
-        assert!(svg.contains(&format!("fill=\"{DEFAULT_FG}\"/>")), "inverse bg rect");
+        assert!(
+            svg.contains(&format!("fill=\"{DEFAULT_FG}\"/>")),
+            "inverse bg rect"
+        );
         assert!(svg.contains("fill=\"#ff8700\""), "indexed 208");
         assert!(svg.contains("fill=\"#010203\""), "truecolor");
         assert!(svg.contains("opacity=\"0.5\""), "cursor block");

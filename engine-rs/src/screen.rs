@@ -397,9 +397,15 @@ mod tests {
 
         let row0 = &snap.lines[0];
         assert_eq!(row0.len(), 2, "two style runs on row 0");
-        assert_eq!((row0[0].x, row0[0].width, row0[0].text.as_str()), (0, 3, "red"));
+        assert_eq!(
+            (row0[0].x, row0[0].width, row0[0].text.as_str()),
+            (0, 3, "red")
+        );
         assert_eq!(row0[0].fg, Color::Named(NamedColor::Red));
-        assert_eq!((row0[1].x, row0[1].width, row0[1].text.as_str()), (3, 5, "plain"));
+        assert_eq!(
+            (row0[1].x, row0[1].width, row0[1].text.as_str()),
+            (3, 5, "plain")
+        );
         assert_eq!(row0[1].fg, Color::Named(NamedColor::Foreground));
 
         // Bold-on-blue "B", then " 日x": the wide char widens its run.
@@ -407,7 +413,10 @@ mod tests {
         assert_eq!(row1.len(), 2);
         assert!(row1[0].flags.contains(Flags::BOLD));
         assert_eq!(row1[0].bg, Color::Named(NamedColor::Blue));
-        assert_eq!((row1[1].x, row1[1].width, row1[1].text.as_str()), (1, 4, " 日x"));
+        assert_eq!(
+            (row1[1].x, row1[1].width, row1[1].text.as_str()),
+            (1, 4, " 日x")
+        );
 
         // Blank rows render as no runs at all.
         assert!(snap.lines[2].is_empty() && snap.lines[3].is_empty());
