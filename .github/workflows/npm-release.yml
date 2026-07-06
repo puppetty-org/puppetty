@@ -5,6 +5,13 @@ name: npm release
 # like `npm-v0.2.0`. Publishes via npm trusted publishing (OIDC): npmjs.com
 # is configured to trust this repo + workflow file, so there is no
 # long-lived token and npm attaches provenance attestations automatically.
+#
+# The trusted publishers are stage-only (direct publish unchecked, since
+# 0.3.0): `npm stage publish` uploads the versions to the staging queue,
+# and nothing is installable until a maintainer approves each staged
+# version on npmjs.com with 2FA (`npm stage approve` works too). Approve
+# the four @puppetty/engine-* packages first, the puppetty launcher last.
+# The dist-tag is fixed at stage time and applied on approval.
 on:
   push:
     tags: ["npm-v*"]
@@ -77,7 +84,7 @@ jobs:
                 license: 'MIT',
                 repository: { type: 'git', url: 'git+https://github.com/puppetty-org/puppetty.git' },
               }, null, 2))"
-            npm publish "./pkg/$pkg" --access public --tag "$TAG"
+            npm stage publish "./pkg/$pkg" --access public --tag "$TAG"
           done
           node -e "
             const fs = require('fs');
@@ -85,4 +92,4 @@ jobs:
             p.version = '$VERSION';
             for (const k of Object.keys(p.optionalDependencies)) p.optionalDependencies[k] = '$VERSION';
             fs.writeFileSync('package.json', JSON.stringify(p, null, 2))"
-          npm publish --access public --tag "$TAG"
+          npm stage publish --access public --tag "$TAG"
