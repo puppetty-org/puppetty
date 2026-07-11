@@ -133,6 +133,26 @@ body.is-mac .resize-grip { display: none; }
 .term-holder { position: absolute; inset: 8px; }
 .term-holder.hidden { visibility: hidden; }
 
+/* Math overlay: KaTeX boxes drawn over the LaTeX source cells (presentation
+   only — js/math-overlay.js). Solid --term-bg, not the -a variant: the box
+   must fully hide the raw source under it even at reduced window opacity. */
+.math-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 10; overflow: hidden; }
+.math-box {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  background: var(--term-bg);
+  color: var(--fg);
+  line-height: 1.2;
+}
+.math-box.display {
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 8px;
+}
+.math-box .katex-display { margin: 0; }
+
 #feed {
   width: 300px;
   flex: none;

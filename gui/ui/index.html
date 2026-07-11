@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <title>puppetty</title>
   <link rel="stylesheet" href="vendor/xterm.css" />
+  <link rel="stylesheet" href="vendor/katex/katex.min.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -12,6 +13,7 @@
     <button id="btn-companion" class="tab-add" data-i18n-title="btn.shell.title" title="New shell">＋</button>
     <div id="topbar-right">
       <div id="actions">
+        <button id="btn-math" data-i18n="btn.math" data-i18n-title="btn.math.title">∑ Math</button>
         <button id="btn-feed" data-i18n="btn.feed" data-i18n-title="btn.feed.title">▤ Feed</button>
         <button id="btn-settings" data-i18n="btn.settings" data-i18n-title="btn.settings.title">⚙ Settings</button>
       </div>
@@ -116,6 +118,11 @@
           <label data-i18n="appearance.showFeed">Show decision feed</label>
           <input type="checkbox" id="pref-feed" />
         </div>
+        <div class="pref-row">
+          <label data-i18n="appearance.renderMath">Typeset math on screen (KaTeX)</label>
+          <input type="checkbox" id="pref-math" />
+        </div>
+        <p class="hint pref-sub" data-i18n="appearance.renderMath.hint">Overlays LaTeX like $x^2$ or \[…\] with rendered math. Display only — the terminal content is unchanged.</p>
         <div class="pref-row">
           <label data-i18n="appearance.confirmKillTab">Confirm before a tab's ✕ kills its session</label>
           <input type="checkbox" id="pref-confirmkill" />
@@ -277,6 +284,7 @@
 
   <script src="vendor/xterm.js"></script>
   <script src="vendor/addon-fit.js"></script>
+  <script src="vendor/katex/katex.min.js"></script>
   <script src="js/main.js" type="module"></script>
 </body>
 </html>

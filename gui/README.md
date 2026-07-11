@@ -25,6 +25,12 @@ while they're shown here.
   keyring), and *Appearance*.
 - **OS notifications** — a desktop toast fires on the rising edge of a
   session needing attention, so you can leave the app and get pulled back.
+- **∑ Math** (top-bar toggle, also Settings ▸ Appearance) — LaTeX on the
+  visible screen (`$x^2$`, `$$…$$`, `\(…\)`, `\[…\]` — including multi-line
+  display blocks) is typeset with KaTeX and drawn over the source cells.
+  Presentation only: the terminal grid and the child process are untouched,
+  the row being typed on is never covered, and heuristics keep shell `$PATH`
+  / price noise as plain text. Handy when an AI CLI answers with formulas.
 - **Appearance preferences** (Settings ▸ Appearance, persisted in
   localStorage) — UI language (English / 日本語), tab position (top
   horizontal / left vertical), show/hide the decision feed (also a top-bar
