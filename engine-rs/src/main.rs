@@ -809,16 +809,30 @@ async fn cmd_attach(name: &str) -> i32 {
     });
 
     let (code, msg) = done_rx.recv().await.unwrap_or((0, None));
+    stdin_task.abort();
+    events_task.abort();
     if is_tty {
+        // The restore replay may have put this terminal into the child's
+        // private modes (alt-screen, mouse reporting, bracketed paste, hidden
+        // cursor, …); the child keeps running server-side, so hand the local
+        // terminal back to a sane state — as tmux/screen do on detach.
+        use std::io::Write;
+        let _ = std::io::stdout().write_all(ATTACH_RESET.as_bytes());
+        let _ = std::io::stdout().flush();
         let _ = crossterm::terminal::disable_raw_mode();
     }
     if let Some(m) = msg {
         eprintln!("{m}");
     }
-    stdin_task.abort();
-    events_task.abort();
     code
 }
+
+/// Undo every private mode `restore_sequence` may have set on attach: leave the
+/// alternate screen, disable all mouse-tracking scopes and encodings, turn off
+/// bracketed-paste and focus reporting, restore normal cursor keys / numeric
+/// keypad / autowrap, show the cursor, and reset SGR. Each `l` is a no-op when
+/// the mode was never on, so this is safe to emit unconditionally.
+const ATTACH_RESET: &str = "\x1b[?1049l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?2004l\x1b[?1004l\x1b[?1l\x1b>\x1b[?7h\x1b[?25h\x1b[0m";
 
 // ---- client commands ----
 
