@@ -7,6 +7,11 @@
 // recomputed from the rendered screen: every render schedules a debounced
 // rescan, and each detected region is keyed by (row, col, source) so an
 // unchanged formula keeps its DOM node — no flicker while output streams.
+//
+// Soft-wrapped rows are joined into logical lines before scanning, so a
+// formula the terminal wrapped mid-`\partial` still typesets; the overlay
+// then covers every wrapped fragment (the typeset box on the first, blank
+// covers on the rest).
 
 /* global katex */
 
@@ -21,13 +26,13 @@ const RE_REGION = /\$\$([^$]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$([^$
 // a TeX command, super/subscript, braces, or an operator between operands.
 const RE_MATHY = /\\[a-zA-Z]+|[_^{}]|[^\s]\s*[=+\-*/<>]\s*[^\s]/;
 
-// Reject inline-$ candidates that are clearly money or code: "$5", "$PATH$"
-// style (opener followed by space / closer preceded by space are rejected by
-// the surrounding checks below).
+// Reject inline-$ candidates that are clearly money or code. A single letter
+// is accepted — `$n$`, `$h$` are the most common inline math in AI answers,
+// while shell/price noise is never a lone letter between two dollars.
 function plausibleInline(src) {
-  if (!RE_MATHY.test(src)) return false;
   if (/^\s|\s$/.test(src)) return false; // "$ x$" / "$x $": not TeX convention
-  return true;
+  if (/^[a-zA-Z]$/.test(src)) return true;
+  return RE_MATHY.test(src);
 }
 
 // Scan one logical line of screen text; returns {start, end, src, display}
@@ -56,9 +61,9 @@ export function detectMath(text) {
 // ---- overlay ------------------------------------------------------------
 
 const RESCAN_DEBOUNCE_MS = 120;
-// A display block's opener and closer may sit rows apart ("\[" on its own
+// A display block's opener and closer may sit lines apart ("\[" on its own
 // line); look this far down for the closer before giving up.
-const MAX_BLOCK_ROWS = 12;
+const MAX_BLOCK_LINES = 12;
 
 export class MathOverlay {
   constructor(term, holder) {
@@ -112,16 +117,59 @@ export class MathOverlay {
     this.root.remove();
   }
 
-  // Untrimmed viewport rows: fixed cols-wide strings so a string index maps
-  // straight back to a column.
-  viewportRows() {
+  // One row as a string whose index equals the cell column. Wide (CJK)
+  // glyphs cover two cells but translateToString would give them one char,
+  // drifting every index after them — so the row is built per cell, with a
+  // space standing in for each wide char's spacer cell. Formulas are ASCII,
+  // so the stand-in never lands inside a match; it only keeps columns true.
+  rowText(line) {
+    const cols = this.term.cols;
+    if (!line) return ' '.repeat(cols);
+    let s = '';
+    for (let c = 0; c < cols; c++) {
+      const cell = line.getCell(c);
+      const chars = cell?.getChars() || '';
+      if (cell && cell.getWidth() === 0) s += ' '; // wide char's spacer cell
+      // Multi-unit graphemes (emoji, combining marks) get a one-unit
+      // placeholder — they can never be part of a formula, and the string
+      // must stay exactly one UTF-16 unit per column.
+      else s += chars.length === 1 ? chars : chars ? '�' : ' ';
+    }
+    return s;
+  }
+
+  // Viewport rows joined into logical lines: a run of soft-wrapped rows is
+  // one line of text as the child wrote it. Rows are exactly `cols` wide
+  // (see rowText), so an index into the joined text maps straight back to a
+  // (row, col) cell.
+  logicalLines() {
     const buf = this.term.buffer.active;
-    const rows = [];
+    const lines = [];
     for (let r = 0; r < this.term.rows; r++) {
       const line = buf.getLine(buf.viewportY + r);
-      rows.push(line ? line.translateToString(false) : ' '.repeat(this.term.cols));
+      const text = this.rowText(line);
+      if (line?.isWrapped && lines.length) {
+        const prev = lines[lines.length - 1];
+        prev.text += text;
+        prev.rowCount++;
+      } else {
+        lines.push({ startRow: r, rowCount: 1, text });
+      }
     }
-    return rows;
+    return lines;
+  }
+
+  // Split a [start, end) index range of a logical line into per-row cell
+  // fragments {row, col, colSpan}.
+  fragmentsOf(startRow, start, end) {
+    const cols = this.term.cols;
+    const frags = [];
+    for (let i = start; i < end; ) {
+      const stop = Math.min(end, (Math.floor(i / cols) + 1) * cols);
+      frags.push({ row: startRow + Math.floor(i / cols), col: i % cols, colSpan: stop - i });
+      i = stop;
+    }
+    return frags;
   }
 
   scan() {
@@ -138,48 +186,62 @@ export class MathOverlay {
 
     const buf = this.term.buffer.active;
     const cursorRow = buf.baseY + buf.cursorY - buf.viewportY;
-    const rows = this.viewportRows();
-    const regions = [];
+    const lines = this.logicalLines();
+    const regions = []; // {src, display, frags} | {src, display: true, block}
 
-    // Per-row inline/display regions.
-    for (let r = 0; r < rows.length; r++) {
-      for (const d of detectMath(rows[r])) {
-        regions.push({ row: r, rowSpan: 1, col: d.start, colSpan: d.end - d.start, ...d });
+    // Inline/display regions within one logical line.
+    const claimed = new Set(); // logical-line indices that had a match
+    for (let li = 0; li < lines.length; li++) {
+      const L = lines[li];
+      for (const d of detectMath(L.text)) {
+        regions.push({
+          src: d.src,
+          display: d.display,
+          frags: this.fragmentsOf(L.startRow, d.start, d.end),
+        });
+        claimed.add(li);
       }
     }
 
-    // Multi-row display blocks: an unmatched \[ or $$ opener whose closer
-    // arrives on a later row. Rows already claimed by a same-row region keep
-    // priority (RE_REGION consumed matched pairs, so leftovers are unmatched).
-    const claimed = new Set(regions.map((g) => g.row));
-    for (let r = 0; r < rows.length; r++) {
-      if (claimed.has(r)) continue;
-      const open = rows[r].match(/\\\[|\$\$/);
-      if (!open) continue;
-      const closerRe = open[0] === '$$' ? /\$\$/ : /\\\]/;
-      for (let e = r + 1; e < Math.min(rows.length, r + MAX_BLOCK_ROWS); e++) {
-        if (claimed.has(e)) break;
-        const close = rows[e].match(closerRe);
-        if (!close) continue;
-        const body = [rows[r].slice(open.index + open[0].length)]
-          .concat(rows.slice(r + 1, e))
-          .concat(rows[e].slice(0, close.index))
+    // Multi-line display blocks. `\[` opens anywhere on an (unclaimed) line
+    // with no `\]` after it; `$$` only when alone on its line — a bare `$$`
+    // in prose (or the closer of a block scrolled half off-screen) must not
+    // pair with an unrelated marker and swallow the text between them.
+    for (let li = 0; li < lines.length; li++) {
+      if (claimed.has(li)) continue;
+      const text = lines[li].text;
+      const dollars = text.trim() === '$$';
+      const brIdx = text.indexOf('\\[');
+      if (!dollars && (brIdx < 0 || text.indexOf('\\]', brIdx) >= 0)) continue;
+      for (let le = li + 1; le < Math.min(lines.length, li + MAX_BLOCK_LINES); le++) {
+        if (claimed.has(le)) break;
+        const closeText = lines[le].text;
+        const closeIdx = dollars ? (closeText.trim() === '$$' ? 0 : -1) : closeText.indexOf('\\]');
+        if (closeIdx < 0) continue;
+        const body = [dollars ? '' : text.slice(brIdx + 2)]
+          .concat(lines.slice(li + 1, le).map((l) => l.text.trimEnd()))
+          .concat(dollars ? '' : closeText.slice(0, closeIdx))
           .join('\n')
           .trim();
         if (body) {
-          const colStart = Math.min(open.index, ...rows.slice(r + 1, e + 1).map((t) => {
-            const w = t.search(/\S/);
+          const indents = lines.slice(li, le + 1).map((l) => {
+            const w = l.text.search(/\S/);
             return w < 0 ? Infinity : w;
-          }));
+          });
+          const col = Math.min(...indents.filter(Number.isFinite), this.term.cols - 1);
+          const row = lines[li].startRow;
+          const endLine = lines[le];
           regions.push({
-            row: r,
-            rowSpan: e - r + 1,
-            col: Number.isFinite(colStart) ? colStart : open.index,
-            colSpan: this.term.cols - (Number.isFinite(colStart) ? colStart : open.index),
             src: body,
             display: true,
+            block: {
+              row,
+              rowSpan: endLine.startRow + endLine.rowCount - row,
+              col,
+              colSpan: this.term.cols - col,
+            },
           });
-          for (let k = r; k <= e; k++) claimed.add(k);
+          for (let k = li; k <= le; k++) claimed.add(k);
         }
         break;
       }
@@ -188,27 +250,50 @@ export class MathOverlay {
     // Rebuild the overlay set, reusing unchanged boxes so streaming output
     // doesn't flicker every debounce tick.
     const keep = new Set();
-    for (const g of regions) {
-      // Never cover the row being typed on.
-      if (cursorRow >= g.row && cursorRow < g.row + g.rowSpan) continue;
-      const html = this.typeset(g.src, g.display);
-      if (!html) continue; // unparseable: leave the raw text visible
-      const key = `${g.row}:${g.col}:${g.rowSpan}:${g.display}:${g.src}`;
+    const place = (el, row, col, colSpan, rowSpan) => {
+      el.style.left = `${offX + col * cellW}px`;
+      el.style.top = `${offY + row * cellH}px`;
+      el.style.minWidth = `${colSpan * cellW}px`;
+      el.style.minHeight = `${rowSpan * cellH}px`;
+      el.style.maxWidth = `${(this.term.cols - col) * cellW}px`;
+      el.style.fontSize = `${this.term.options.fontSize + 2}px`;
+    };
+    const ensure = (key, className, html) => {
       keep.add(key);
       let el = this.boxes.get(key);
       if (!el) {
         el = document.createElement('div');
-        el.className = `math-box ${g.display ? 'display' : 'inline'}`;
+        el.className = className;
         el.innerHTML = html;
         this.root.appendChild(el);
         this.boxes.set(key, el);
       }
-      el.style.left = `${offX + g.col * cellW}px`;
-      el.style.top = `${offY + g.row * cellH}px`;
-      el.style.minWidth = `${g.colSpan * cellW}px`;
-      el.style.minHeight = `${g.rowSpan * cellH}px`;
-      el.style.maxWidth = `${(this.term.cols - g.col) * cellW}px`;
-      el.style.fontSize = `${this.term.options.fontSize + 2}px`;
+      return el;
+    };
+    for (const g of regions) {
+      const rows = g.block
+        ? { first: g.block.row, last: g.block.row + g.block.rowSpan - 1 }
+        : { first: g.frags[0].row, last: g.frags[g.frags.length - 1].row };
+      // Never cover the row being typed on.
+      if (cursorRow >= rows.first && cursorRow <= rows.last) continue;
+      const html = this.typeset(g.src, g.display);
+      if (!html) continue; // unparseable: leave the raw text visible
+      const base = `${rows.first}:${g.display}:${g.src}`;
+      if (g.block) {
+        place(
+          ensure(`${base}:${g.block.col}`, 'math-box display', html),
+          g.block.row, g.block.col, g.block.colSpan, g.block.rowSpan
+        );
+      } else {
+        // Typeset box over the first fragment; bare covers over the rest of
+        // a wrapped formula so its raw tail doesn't peek out underneath.
+        g.frags.forEach((f, i) => {
+          const el = i === 0
+            ? ensure(`${base}:${f.col}`, `math-box ${g.display ? 'display' : 'inline'}`, html)
+            : ensure(`${base}:${f.col}:${i}`, 'math-box blank', '');
+          place(el, f.row, f.col, f.colSpan, 1);
+        });
+      }
     }
     for (const [key, el] of this.boxes) {
       if (!keep.has(key)) {
@@ -225,10 +310,12 @@ export class MathOverlay {
       try {
         html = katex.renderToString(src, { displayMode: display, throwOnError: false });
       } catch {
-        html = null; // ParseError with throwOnError:false is rare but possible
+        html = ''; // ParseError with throwOnError:false is rare but possible
       }
-      // Unparseable "math" stays raw terminal text (empty box would hide it).
-      if (html == null) html = '';
+      // katex-error spans mean the "math" wasn't (mispaired delimiters,
+      // prose, an unsupported macro) — leave the raw text visible instead
+      // of drawing red garbage over it.
+      if (html.includes('katex-error')) html = '';
       this.cache.set(key, html);
       if (this.cache.size > 500) this.cache.delete(this.cache.keys().next().value);
     }
