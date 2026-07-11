@@ -2,6 +2,7 @@
 // sessions, a decision feed from the session event log, and a banner when
 // a session needs attention (blocked on a prompt after autonomous activity).
 import { setLang, t, applyI18n } from './i18n.js';
+import { MathOverlay } from './math-overlay.js';
 
 const { invoke } = window.__TAURI__.core;
 const { listen, emitTo } = window.__TAURI__.event;
@@ -31,6 +32,7 @@ const DEFAULT_PREFS = {
   autoAnswer: false,    // default for the New-command "auto-answer prompts" toggle
   confirmKillTab: true, // ask before the tab ✕ kills a live session
   shellCommand: '',     // new-tab shell override; empty = platform default
+  renderMath: false,    // typeset on-screen LaTeX with KaTeX (overlay)
 };
 
 function hexToRgba(hex, a) {
@@ -179,6 +181,10 @@ function applyFeed(show) {
   document.getElementById('btn-feed').classList.toggle('off', !show);
   refitActive();
 }
+function applyMath(on) {
+  document.getElementById('btn-math').classList.toggle('off', !on);
+  for (const s of sessions.values()) s.math.setEnabled(on);
+}
 function applyLang(lang) {
   setLang(lang);
   document.documentElement.lang = lang;
@@ -189,6 +195,7 @@ function applyAllPrefs() {
   applyTheme(prefs.theme); // also applies glass/opacity
   applyTabPos(prefs.tabPos);
   applyFeed(prefs.showFeed);
+  applyMath(prefs.renderMath);
   document.getElementById('btn-auto')?.classList.toggle('on', prefs.autoAnswer);
   // font is applied per-terminal at creation; applyFont() covers live changes
 }
@@ -278,9 +285,11 @@ function makeTerminal(name, command, auto) {
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
   term.open(holder);
+  const math = new MathOverlay(term, holder);
+  math.setEnabled(prefs.renderMath);
 
   const entry = {
-    term, fit, holder,
+    term, fit, holder, math,
     alive: true, blocked: false, auto: !!auto,
     surfacePrompts: runsScript(command),
     lastUserInput: 0, autonomousAt: 0, lastResizeAt: Date.now(), killedByUser: false,
@@ -510,6 +519,7 @@ async function onTabDragEnd(e, name) {
 function removeTab(name) {
   const s = sessions.get(name);
   if (!s) return;
+  s.math.dispose();
   s.term.dispose();
   s.holder.remove();
   s.tab.remove();
@@ -732,6 +742,14 @@ document.getElementById('btn-feed').onclick = () => {
   if (cb) cb.checked = prefs.showFeed;
 };
 
+document.getElementById('btn-math').onclick = () => {
+  prefs.renderMath = !prefs.renderMath;
+  applyMath(prefs.renderMath);
+  savePrefs();
+  const cb = document.getElementById('pref-math');
+  if (cb) cb.checked = prefs.renderMath;
+};
+
 function loadAppearanceControls() {
   document.getElementById('pref-lang').value = prefs.lang;
   document.getElementById('pref-tabpos').value = prefs.tabPos;
@@ -740,6 +758,7 @@ function loadAppearanceControls() {
   document.getElementById('pref-shellcmd').value = prefs.shellCommand ?? '';
   document.getElementById('pref-autoanswer').checked = prefs.autoAnswer;
   document.getElementById('pref-feed').checked = prefs.showFeed;
+  document.getElementById('pref-math').checked = prefs.renderMath;
   document.getElementById('pref-confirmkill').checked = prefs.confirmKillTab !== false;
   invoke('get_remote_debug')
     .then((on) => { document.getElementById('pref-remotedebug').checked = !!on; })
@@ -805,6 +824,9 @@ document.getElementById('pref-autoanswer').onchange = (e) => {
 };
 document.getElementById('pref-feed').onchange = (e) => {
   prefs.showFeed = e.target.checked; applyFeed(prefs.showFeed); savePrefs();
+};
+document.getElementById('pref-math').onchange = (e) => {
+  prefs.renderMath = e.target.checked; applyMath(prefs.renderMath); savePrefs();
 };
 document.getElementById('pref-confirmkill').onchange = (e) => {
   prefs.confirmKillTab = e.target.checked; savePrefs();
