@@ -2,7 +2,7 @@ use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::term::cell::{Cell, Flags};
-use alacritty_terminal::term::{Config, Term};
+use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Processor};
 
 /// Headless terminal screen model: feed raw PTY output in, read the rendered
@@ -212,10 +212,60 @@ impl Screen {
         }
     }
 
+    /// DEC private modes an attaching client must adopt to match the child,
+    /// emitted before the repaint. Without these, a client that attaches
+    /// *after* the child turned a mode on (e.g. an app that enables mouse
+    /// tracking or the alternate screen at startup) never enters it — so the
+    /// mouse wheel, bracketed paste, etc. silently do nothing. Alt-screen is
+    /// set first so the repaint lands in the alternate buffer; the matching
+    /// resets on detach live in `main.rs`'s attach cleanup.
+    fn mode_prefix(&self) -> String {
+        let m = self.term.mode();
+        let mut s = String::new();
+        if m.contains(TermMode::ALT_SCREEN) {
+            s.push_str("\x1b[?1049h");
+        }
+        if m.contains(TermMode::APP_CURSOR) {
+            s.push_str("\x1b[?1h");
+        }
+        if m.contains(TermMode::APP_KEYPAD) {
+            s.push_str("\x1b=");
+        }
+        // LINE_WRAP is on by default; only a child that turned it off matters.
+        if !m.contains(TermMode::LINE_WRAP) {
+            s.push_str("\x1b[?7l");
+        }
+        if m.contains(TermMode::BRACKETED_PASTE) {
+            s.push_str("\x1b[?2004h");
+        }
+        if m.contains(TermMode::FOCUS_IN_OUT) {
+            s.push_str("\x1b[?1004h");
+        }
+        // Mouse reporting: the tracking scope (1000/1002/1003) and the
+        // encoding (1005/1006) are independent flags — replay each that is set.
+        if m.contains(TermMode::MOUSE_REPORT_CLICK) {
+            s.push_str("\x1b[?1000h");
+        }
+        if m.contains(TermMode::MOUSE_DRAG) {
+            s.push_str("\x1b[?1002h");
+        }
+        if m.contains(TermMode::MOUSE_MOTION) {
+            s.push_str("\x1b[?1003h");
+        }
+        if m.contains(TermMode::UTF8_MOUSE) {
+            s.push_str("\x1b[?1005h");
+        }
+        if m.contains(TermMode::SGR_MOUSE) {
+            s.push_str("\x1b[?1006h");
+        }
+        s
+    }
+
     /// Escape-sequence string that repaints the current buffer — colors and
     /// attributes included — on another terminal of the same size. The Rust
     /// counterpart of xterm.js's serialize addon, used for attach replay:
-    /// up to 1000 history lines scroll into the client's scrollback, then
+    /// the child's active private modes (mouse, alt-screen, …) are set first,
+    /// then up to 1000 history lines scroll into the client's scrollback, then
     /// the visible rows land exactly in its viewport (history + rows ≥ rows,
     /// so no explicit clear is needed), then the cursor is positioned.
     pub fn restore_sequence(&self) -> String {
@@ -224,7 +274,7 @@ impl Screen {
         let rows = grid.screen_lines() as i32;
         let history = grid.history_size().min(MAX_HISTORY) as i32;
 
-        let mut out = String::new();
+        let mut out = self.mode_prefix();
         let mut pen: Option<(Color, Color, Flags)> = None;
         for l in -history..rows {
             if l > -history {
@@ -263,6 +313,12 @@ impl Screen {
             point.line.0.max(0) + 1,
             point.column.0 + 1
         ));
+        // A child that hid the cursor (full-screen TUIs while redrawing) must
+        // hide it on the client too; done after positioning so the target row
+        // is still restored correctly.
+        if !self.term.mode().contains(TermMode::SHOW_CURSOR) {
+            out.push_str("\x1b[?25l");
+        }
         out
     }
 }
@@ -420,6 +476,47 @@ mod tests {
 
         // Blank rows render as no runs at all.
         assert!(snap.lines[2].is_empty() && snap.lines[3].is_empty());
+    }
+
+    /// A child that enabled mouse reporting and the alternate screen before a
+    /// client attached must have those modes re-established by the restore, or
+    /// the client's mouse wheel (and other mode-gated input) does nothing.
+    #[test]
+    fn restore_sequence_replays_private_modes() {
+        let mut a = Screen::new(40, 10);
+        // Alt-screen + button-event mouse tracking + SGR encoding + hidden
+        // cursor — the set claude turns on at startup.
+        a.write(b"\x1b[?1049h\x1b[?1002h\x1b[?1006h\x1b[?25lhello");
+
+        let restore = a.restore_sequence();
+        assert!(
+            restore.starts_with("\x1b[?1049h"),
+            "alt-screen enters first"
+        );
+        assert!(restore.contains("\x1b[?1002h"), "button-event tracking");
+        assert!(restore.contains("\x1b[?1006h"), "SGR mouse encoding");
+        assert!(restore.ends_with("\x1b[?25l"), "cursor stays hidden");
+
+        let mut b = Screen::new(40, 10);
+        b.write(restore.as_bytes());
+        let m = b.term.mode();
+        assert!(m.contains(TermMode::ALT_SCREEN));
+        assert!(m.contains(TermMode::MOUSE_DRAG));
+        assert!(m.contains(TermMode::SGR_MOUSE));
+        assert!(!m.contains(TermMode::SHOW_CURSOR));
+    }
+
+    /// A plain session (no private modes touched) restores no mode sequences,
+    /// so the round-trip stays byte-clean for the common case.
+    #[test]
+    fn restore_sequence_omits_default_modes() {
+        let mut a = Screen::new(20, 4);
+        a.write(b"plain");
+        let restore = a.restore_sequence();
+        assert!(
+            !restore.contains("\x1b[?"),
+            "no private-mode sets: {restore:?}"
+        );
     }
 
     /// With scrollback: history lines printed first must scroll into the
