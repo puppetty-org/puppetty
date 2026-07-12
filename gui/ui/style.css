@@ -145,6 +145,10 @@ body.is-mac .resize-grip { display: none; }
   color: var(--fg);
   line-height: 1.2;
 }
+/* The box must span the raw LaTeX source, which is wider than its typeset
+   result — center the math so the slack splits into two natural-looking
+   word gaps instead of one wide hole on the right. */
+.math-box.inline { justify-content: center; }
 .math-box.display {
   justify-content: center;
   border: 1px solid var(--border);
