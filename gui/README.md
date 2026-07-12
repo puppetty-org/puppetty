@@ -25,7 +25,7 @@ while they're shown here.
   keyring), and *Appearance*.
 - **OS notifications** — a desktop toast fires on the rising edge of a
   session needing attention, so you can leave the app and get pulled back.
-- **∑ Math** (top-bar toggle, also Settings ▸ Appearance) — LaTeX on the
+- **Math typesetting** (Settings ▸ Appearance) — LaTeX on the
   visible screen (`$x^2$`, `$$…$$`, `\(…\)`, `\[…\]` — including multi-line
   display blocks) is typeset with KaTeX and drawn over the source cells.
   Presentation only: the terminal grid and the child process are untouched,
