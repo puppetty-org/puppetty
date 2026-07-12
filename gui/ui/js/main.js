@@ -182,7 +182,6 @@ function applyFeed(show) {
   refitActive();
 }
 function applyMath(on) {
-  document.getElementById('btn-math').classList.toggle('off', !on);
   for (const s of sessions.values()) s.math.setEnabled(on);
 }
 function applyLang(lang) {
@@ -740,14 +739,6 @@ document.getElementById('btn-feed').onclick = () => {
   savePrefs();
   const cb = document.getElementById('pref-feed');
   if (cb) cb.checked = prefs.showFeed;
-};
-
-document.getElementById('btn-math').onclick = () => {
-  prefs.renderMath = !prefs.renderMath;
-  applyMath(prefs.renderMath);
-  savePrefs();
-  const cb = document.getElementById('pref-math');
-  if (cb) cb.checked = prefs.renderMath;
 };
 
 function loadAppearanceControls() {
